@@ -158,6 +158,40 @@ class CodeCombiner {
     this.projectRoot = null;
     this.projectDependencies = new Set();
   }
+
+  buildDependencyGraph(filePath, visited = new Set()) {
+    const normalizedPath = path.resolve(filePath);
+
+    if (!this.projectRoot) {
+      this.projectRoot = this.detectRoot(normalizedPath);
+    }
+
+    if (visited.has(normalizedPath)) {
+      return { name: path.basename(normalizedPath), path: normalizedPath, circular: true, children: [] };
+    }
+
+    if (!fs.existsSync(normalizedPath)) {
+      return { name: path.basename(filePath), path: filePath, missing: true, children: [] };
+    }
+
+    visited.add(normalizedPath);
+    const content = fs.readFileSync(normalizedPath, 'utf-8');
+    const imports = this.extractImports(content);
+    const children = [];
+
+    for (const importPath of imports) {
+      const resolvedPath = this.resolveImportPath(normalizedPath, importPath);
+      if (resolvedPath) {
+        children.push(this.buildDependencyGraph(resolvedPath, new Set(visited)));
+      }
+    }
+
+    return {
+      name: path.basename(normalizedPath),
+      path: normalizedPath,
+      children
+    };
+  }
 }
 
 // ... (Giữ nguyên logic tạo window) ...
@@ -207,6 +241,18 @@ ipcMain.handle('select-output-file', async () => {
     ]
   });
   return (!result.canceled && result.filePath) ? result.filePath : null;
+});
+
+// IPC Handler for Dependency Graph Analysis
+ipcMain.handle('analyze-dependencies', async (event, inputPath) => {
+  try {
+    combiner.reset();
+    const graph = combiner.buildDependencyGraph(inputPath);
+    combiner.reset();
+    return { success: true, graph };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
 });
 
 // 3. Cập nhật handler xử lý file

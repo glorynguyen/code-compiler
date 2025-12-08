@@ -10,6 +10,7 @@ A sleek Electron app that combines and bundles your TypeScript/JavaScript files 
 - **🌳 Tree Shaking** — Powered by [esbuild](https://esbuild.github.io/) to eliminate unused code
 - **🗜️ Minification** — Optional minify to squeeze out maximum compression
 - **💰 Token Savings Calculator** — See how many tokens and dollars you're saving (based on GPT-4 pricing)
+- **📊 Dependency Graph Visualization** — Interactive tree view showing how your files are connected via imports
 - **📋 Clipboard Support** — Copy directly to clipboard for instant pasting into AI chats
 - **💾 File Export** — Save combined code to a file for sharing or archiving
 - **🎨 Beautiful UI** — Modern gradient design with smooth animations
@@ -46,7 +47,25 @@ yarn start
    - 🗜️ **Minify Output** — Compress the output further
 4. **Click Process** — Done! See your token savings instantly
 
-## 💡 Token Savings
+## � Dependency Graph
+
+Visualize how your files are connected! After selecting an entry file, click **"Show Dependency Graph"** to open an interactive modal showing:
+
+| Element | Description |
+|---------|-------------|
+| 🚀 **Entry File** | Your main entry point (highlighted in purple) |
+| 📄 **Dependencies** | Files imported by your code |
+| 🔄 **Circular** | Circular import detected (yellow warning) |
+| ❌ **Missing** | File not found (red error) |
+
+**Stats displayed:**
+- **Total Files** — Number of files in the dependency tree
+- **Max Depth** — Deepest level of nested imports
+- **Direct Dependencies** — Files directly imported by entry file
+
+Click on any node with children to **collapse/expand** that branch.
+
+## �💡 Token Savings
 
 When using Bundle mode, the app calculates:
 
