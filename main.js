@@ -394,32 +394,28 @@ ipcMain.handle('process-files', async (event, inputPath, outputPath, outputMode,
       };
 
       if (isFolder) {
-        // For folder mode, concatenate files WITHOUT bundling (to avoid duplicating shared deps)
-        // Each file is read raw, optionally minified via esbuild transform
+        // For folder mode, use CodeCombiner to properly follow imports and deduplicate
+        // The processedFiles Set ensures each file is only included once
+        combiner.reset();
         for (const file of filesToProcess) {
+          combiner.processFile(file, true); // compress=true for compact output with file markers
+        }
+        finalContent = combiner.getCombinedContent();
+
+        // Optionally minify the combined output
+        if (shouldMinify) {
           try {
-            let content = fs.readFileSync(file, 'utf-8');
-
-            if (shouldMinify) {
-              // Use esbuild.transform for minification only (no bundling)
-              const ext = path.extname(file).slice(1);
-              const loader = ['ts', 'tsx', 'jsx'].includes(ext) ? ext : 'js';
-              const result = esbuild.transformSync(content, {
-                loader: loader,
-                minify: true,
-                target: 'esnext',
-              });
-              content = result.code;
-            }
-
-            bundledOutputs.push(`// === ${path.relative(inputPath, file)} ===\n${content}`);
+            const result = esbuild.transformSync(finalContent, {
+              loader: 'js',
+              minify: true,
+              target: 'esnext',
+            });
+            finalContent = result.code;
           } catch (e) {
-            // If transform fails, include raw content
-            const rawContent = fs.readFileSync(file, 'utf-8');
-            bundledOutputs.push(`// === ${path.relative(inputPath, file)} (raw) ===\n${rawContent}`);
+            // If minification fails, keep the unminified content
+            console.warn('Minification failed, using unminified output:', e.message);
           }
         }
-        finalContent = bundledOutputs.join('\n\n');
       } else {
         // Single file mode
         const result = esbuild.buildSync({
@@ -450,14 +446,14 @@ ipcMain.handle('process-files', async (event, inputPath, outputPath, outputMode,
       const costSaved = (tokensSaved / 1000) * COST_PER_1K_TOKENS;
 
       stats = {
-        filesProcessed: isFolder ? `${filesToProcess.length} files bundled via esbuild` : "Bundled & Tree-shaken via esbuild",
+        filesProcessed: isFolder ? `${combiner.processedFiles.size} files (deduplicated)` : "Bundled & Tree-shaken via esbuild",
         outputSize: (compressedSize / 1024).toFixed(2),
         originalSize: (originalSize / 1024).toFixed(2),
         originalTokens,
         compressedTokens,
         tokensSaved,
         costSaved: costSaved.toFixed(4),
-        files: isFolder ? filesToProcess.map(f => path.relative(inputPath, f)) : ["Optimized Bundle"]
+        files: isFolder ? Array.from(combiner.processedFiles).map(f => path.relative(inputPath, f)) : ["Optimized Bundle"]
       };
 
     } else {

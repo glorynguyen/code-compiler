@@ -59,6 +59,14 @@ Process multiple files at once with granular control:
 5. Use **Select All** / **Deselect All** for quick selection
 6. Process only the files you need!
 
+### Smart Deduplication
+
+When processing multiple files in folder mode, the app automatically:
+
+- **Follows imports** — Resolves and includes all dependencies from selected files
+- **Deduplicates shared modules** — If multiple files import the same dependency, it's included only once
+- **Shows accurate stats** — Displays the actual count of deduplicated files processed
+
 > **Note:** Folder mode skips `node_modules`, `dist`, `.git`, and other build directories automatically.
 
 ## � Dependency Graph
