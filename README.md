@@ -11,6 +11,7 @@ A sleek Electron app that combines and bundles your TypeScript/JavaScript files 
 - **🗜️ Minification** — Optional minify to squeeze out maximum compression
 - **💰 Token Savings Calculator** — See how many tokens and dollars you're saving (based on GPT-4 pricing)
 - **📊 Dependency Graph Visualization** — Interactive tree view showing how your files are connected via imports
+- **📁 Folder Selection** — Process all JS/TS files in a folder at once
 - **📋 Clipboard Support** — Copy directly to clipboard for instant pasting into AI chats
 - **💾 File Export** — Save combined code to a file for sharing or archiving
 - **🎨 Beautiful UI** — Modern gradient design with smooth animations

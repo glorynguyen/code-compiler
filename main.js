@@ -3,6 +3,34 @@ const path = require('path');
 const { app, BrowserWindow, ipcMain, dialog, clipboard } = require('electron');
 const esbuild = require('esbuild');
 
+// Helper function to recursively find all JS/TS files in a directory
+function findFilesInDirectory(dirPath, extensions = ['.ts', '.tsx', '.js', '.jsx']) {
+  const files = [];
+
+  function walkDir(currentPath) {
+    const entries = fs.readdirSync(currentPath, { withFileTypes: true });
+
+    for (const entry of entries) {
+      const fullPath = path.join(currentPath, entry.name);
+
+      // Skip node_modules, dist, and hidden directories
+      if (entry.isDirectory()) {
+        if (!['node_modules', 'dist', '.git', '.next', 'build', 'coverage'].includes(entry.name)) {
+          walkDir(fullPath);
+        }
+      } else if (entry.isFile()) {
+        const ext = path.extname(entry.name).toLowerCase();
+        if (extensions.includes(ext)) {
+          files.push(fullPath);
+        }
+      }
+    }
+  }
+
+  walkDir(dirPath);
+  return files;
+}
+
 class CodeCombiner {
   constructor() {
     this.processedFiles = new Set();
@@ -232,6 +260,14 @@ ipcMain.handle('select-input-file', async () => {
   return (!result.canceled && result.filePaths.length > 0) ? result.filePaths[0] : null;
 });
 
+// IPC Handler for selecting a folder
+ipcMain.handle('select-input-folder', async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    properties: ['openDirectory']
+  });
+  return (!result.canceled && result.filePaths.length > 0) ? result.filePaths[0] : null;
+});
+
 ipcMain.handle('select-output-file', async () => {
   const result = await dialog.showSaveDialog(mainWindow, {
     defaultPath: 'combined-code.txt',
@@ -256,17 +292,27 @@ ipcMain.handle('analyze-dependencies', async (event, inputPath) => {
 });
 
 // 3. Cập nhật handler xử lý file
-ipcMain.handle('process-files', async (event, inputPath, outputPath, outputMode, shouldCompress, shouldMinify) => {
+ipcMain.handle('process-files', async (event, inputPath, outputPath, outputMode, shouldCompress, shouldMinify, isFolder) => {
   try {
     let finalContent = '';
     let stats = {};
+
+    // Determine the list of files to process
+    let filesToProcess = [];
+    if (isFolder) {
+      filesToProcess = findFilesInDirectory(inputPath);
+      if (filesToProcess.length === 0) {
+        throw new Error('No .ts, .tsx, .js, or .jsx files found in the selected folder');
+      }
+    } else {
+      filesToProcess = [inputPath];
+    }
 
     if (shouldCompress) {
       // --- MODE A: Tree-Shaking (esbuild) ---
 
       // 1. Detect Project Root
-      // We use the helper from CodeCombiner, even though we aren't using the full class logic here
-      const projectRoot = combiner.detectRoot(inputPath);
+      const projectRoot = combiner.detectRoot(filesToProcess[0]);
 
       // 2. Resolve Configuration Files
       const tsconfigPath = path.join(projectRoot, 'tsconfig.json');
@@ -283,7 +329,6 @@ ipcMain.handle('process-files', async (event, inputPath, outputPath, outputMode,
             ...Object.keys(pkg.dependencies || {}),
             ...Object.keys(pkg.devDependencies || {}),
             ...Object.keys(pkg.peerDependencies || {}),
-            // Add Electron specific built-ins just in case
             'electron',
             'fs',
             'path'
@@ -293,60 +338,100 @@ ipcMain.handle('process-files', async (event, inputPath, outputPath, outputMode,
         }
       }
 
+      // Add patterns to ignore CSS, images, and other non-JS assets
+      externalDeps.push('*.css', '*.scss', '*.sass', '*.less');
+      externalDeps.push('*.png', '*.jpg', '*.jpeg', '*.gif', '*.svg', '*.ico');
+      externalDeps.push('*.woff', '*.woff2', '*.ttf', '*.eot');
+
       // 4. Get original size (before compression) for comparison
       combiner.reset();
-      combiner.processFile(inputPath, false);
+      for (const file of filesToProcess) {
+        combiner.processFile(file, false);
+      }
       const originalContent = combiner.getCombinedContent();
       const originalSize = originalContent.length;
       combiner.reset();
 
-      // 5. Run esbuild
-      const result = esbuild.buildSync({
-        entryPoints: [inputPath],
-        bundle: true,
-        treeShaking: true,
-        minify: shouldMinify,  // Use the checkbox value from UI
-        format: 'esm',
-        target: 'esnext',
-        platform: 'node',
-        // Pass the tsconfig so esbuild understands 'lib/...' or 'src/...' paths
-        tsconfig: hasTsConfig ? tsconfigPath : undefined,
-        write: false,
-        // Pass the combined list of dependencies to exclude
-        external: externalDeps,
-      });
+      // 5. Run esbuild - process each file individually for folder mode
+      let bundledOutputs = [];
 
-      finalContent = result.outputFiles[0].text;
+      if (isFolder) {
+        // For folder mode, process each file separately and concatenate
+        for (const file of filesToProcess) {
+          try {
+            const result = esbuild.buildSync({
+              entryPoints: [file],
+              bundle: true,
+              treeShaking: true,
+              minify: shouldMinify,
+              format: 'esm',
+              target: 'esnext',
+              platform: 'node',
+              tsconfig: hasTsConfig ? tsconfigPath : undefined,
+              write: false,
+              external: externalDeps,
+            });
+            bundledOutputs.push(`// === ${path.relative(inputPath, file)} ===\n${result.outputFiles[0].text}`);
+          } catch (e) {
+            // If bundling fails for a file, include it as-is
+            const rawContent = fs.readFileSync(file, 'utf-8');
+            bundledOutputs.push(`// === ${path.relative(inputPath, file)} (raw) ===\n${rawContent}`);
+          }
+        }
+        finalContent = bundledOutputs.join('\n\n');
+      } else {
+        // Single file mode
+        const result = esbuild.buildSync({
+          entryPoints: filesToProcess,
+          bundle: true,
+          treeShaking: true,
+          minify: shouldMinify,
+          format: 'esm',
+          target: 'esnext',
+          platform: 'node',
+          tsconfig: hasTsConfig ? tsconfigPath : undefined,
+          write: false,
+          external: externalDeps,
+        });
+        finalContent = result.outputFiles[0].text;
+      }
+
       const compressedSize = finalContent.length;
 
-      // Token estimation: ~4 characters per token (GPT estimation)
+      // Token estimation
       const CHARS_PER_TOKEN = 4;
       const originalTokens = Math.ceil(originalSize / CHARS_PER_TOKEN);
       const compressedTokens = Math.ceil(compressedSize / CHARS_PER_TOKEN);
       const tokensSaved = originalTokens - compressedTokens;
 
-      // Cost calculation: GPT-4 pricing ~$0.03 per 1K input tokens
       const COST_PER_1K_TOKENS = 0.03;
       const costSaved = (tokensSaved / 1000) * COST_PER_1K_TOKENS;
 
       stats = {
-        filesProcessed: "Bundled & Tree-shaken via esbuild",
+        filesProcessed: isFolder ? `${filesToProcess.length} files bundled via esbuild` : "Bundled & Tree-shaken via esbuild",
         outputSize: (compressedSize / 1024).toFixed(2),
         originalSize: (originalSize / 1024).toFixed(2),
         originalTokens,
         compressedTokens,
         tokensSaved,
         costSaved: costSaved.toFixed(4),
-        files: ["Optimized Bundle"]
+        files: isFolder ? filesToProcess.map(f => path.relative(inputPath, f)) : ["Optimized Bundle"]
       };
 
     } else {
       // --- MODE B: Standard Concatenation (CodeCombiner) ---
       combiner.reset();
-      combiner.processFile(inputPath, false);
+      for (const file of filesToProcess) {
+        combiner.processFile(file, false);
+      }
 
       finalContent = combiner.getCombinedContent();
-      stats = combiner.getStats(finalContent);
+      const baseStats = combiner.getStats(finalContent);
+      stats = {
+        ...baseStats,
+        filesProcessed: isFolder ? `${filesToProcess.length} files` : baseStats.filesProcessed,
+        files: isFolder ? filesToProcess.map(f => path.relative(inputPath, f)) : baseStats.files
+      };
     }
 
     // Output Handling (Clipboard or File)

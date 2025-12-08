@@ -12,7 +12,6 @@ A checklist of planned features for the Code Combiner app.
 
 - [ ] **Preset Configurations** - Save/load preset configurations (input patterns, output locations, options) for frequently used projects
 
-- [x] **Dependency Graph Visualization** - Show a visual tree/graph of how files are connected via imports
 
 - [ ] **Diff View** - Show before/after comparison of code size, highlight what was removed during tree-shaking
 
@@ -30,7 +29,8 @@ A checklist of planned features for the Code Combiner app.
 
 ## ✅ Completed Features
 
-_(Move completed features here)_
+- [x] **Dependency Graph Visualization** - Show a visual tree/graph of how files are connected via imports
+- [x] **Folder Selection Support** - Select entire folders to process all JS/TS files at once
 
 ---
 

@@ -381,10 +381,22 @@
     <p class="subtitle">Combine TypeScript/JavaScript files into a single optimized output</p>
 
     <div class="file-section">
-      <label>📂 Entry File (.ts, .tsx, .js, .jsx):</label>
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+        <label style="margin-bottom: 0;">📂 <span id="inputLabel">Entry File</span> (.ts, .tsx, .js, .jsx):</label>
+        <div style="display: flex; gap: 10px;">
+          <label class="radio-label" style="font-size: 12px;">
+            <input type="radio" name="inputType" value="file" checked onchange="handleInputTypeChange()">
+            File
+          </label>
+          <label class="radio-label" style="font-size: 12px;">
+            <input type="radio" name="inputType" value="folder" onchange="handleInputTypeChange()">
+            Folder
+          </label>
+        </div>
+      </div>
       <div class="file-input-group">
         <input type="text" id="inputPath" placeholder="Select entry file..." readonly>
-        <button class="browse-btn" onclick="selectInputFile()">Browse</button>
+        <button class="browse-btn" id="browseInputBtn" onclick="selectInput()">Browse</button>
       </div>
     </div>
 
@@ -449,6 +461,56 @@
     let inputFilePath = null;
     let outputFilePath = null;
     let outputMode = 'file'; // 'file' or 'clipboard'
+    let inputType = 'file'; // 'file' or 'folder'
+
+    function handleInputTypeChange() {
+      const radios = document.getElementsByName('inputType');
+      for (const radio of radios) {
+        if (radio.checked) {
+          inputType = radio.value;
+          break;
+        }
+      }
+
+      const inputLabel = document.getElementById('inputLabel');
+      const inputPathEl = document.getElementById('inputPath');
+      const graphBtn = document.getElementById('showGraphBtn');
+
+      if (inputType === 'folder') {
+        inputLabel.textContent = 'Source Folder';
+        inputPathEl.placeholder = 'Select source folder...';
+        // Disable dependency graph for folder mode (not applicable)
+        graphBtn.style.display = 'none';
+      } else {
+        inputLabel.textContent = 'Entry File';
+        inputPathEl.placeholder = 'Select entry file...';
+        graphBtn.style.display = 'block';
+      }
+
+      // Reset input when switching types
+      inputFilePath = null;
+      inputPathEl.value = '';
+      checkCanProcess();
+    }
+
+    async function selectInput() {
+      if (inputType === 'folder') {
+        const path = await ipcRenderer.invoke('select-input-folder');
+        if (path) {
+          inputFilePath = path;
+          document.getElementById('inputPath').value = path;
+          checkCanProcess();
+        }
+      } else {
+        const path = await ipcRenderer.invoke('select-input-file');
+        if (path) {
+          inputFilePath = path;
+          document.getElementById('inputPath').value = path;
+          checkCanProcess();
+        }
+      }
+    }
+
 
     function handleModeChange() {
       const radios = document.getElementsByName('outputMode');
@@ -631,8 +693,9 @@
       btn.textContent = 'Processing...';
       resultDiv.style.display = 'none';
 
-      // Pass outputMode to backend
-      const result = await ipcRenderer.invoke('process-files', inputFilePath, outputFilePath, outputMode, shouldCompress, shouldMinify);
+      // Pass outputMode and isFolder to backend
+      const isFolder = inputType === 'folder';
+      const result = await ipcRenderer.invoke('process-files', inputFilePath, outputFilePath, outputMode, shouldCompress, shouldMinify, isFolder);
 
       btn.disabled = false;
       btn.textContent = originalText;
