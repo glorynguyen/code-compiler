@@ -11,7 +11,7 @@ A sleek Electron app that combines and bundles your TypeScript/JavaScript files 
 - **🗜️ Minification** — Optional minify to squeeze out maximum compression
 - **💰 Token Savings Calculator** — See how many tokens and dollars you're saving (based on GPT-4 pricing)
 - **📊 Dependency Graph Visualization** — Interactive tree view showing how your files are connected via imports
-- **📁 Folder Selection** — Process all JS/TS files in a folder at once
+- **📁 Folder Selection** — Process all JS/TS files in a folder with file-by-file selection
 - **📋 Clipboard Support** — Copy directly to clipboard for instant pasting into AI chats
 - **💾 File Export** — Save combined code to a file for sharing or archiving
 - **🎨 Beautiful UI** — Modern gradient design with smooth animations
@@ -47,6 +47,19 @@ yarn start
    - ⚡ **Bundle Mode** — Enable esbuild bundling with tree-shaking
    - 🗜️ **Minify Output** — Compress the output further
 4. **Click Process** — Done! See your token savings instantly
+
+## 📁 Folder Mode
+
+Process multiple files at once with granular control:
+
+1. Select **Folder** in the input type toggle
+2. Click **Browse** and select a folder
+3. A **file picker** appears showing all `.ts/.tsx/.js/.jsx` files found
+4. **Check/uncheck** individual files to include/exclude
+5. Use **Select All** / **Deselect All** for quick selection
+6. Process only the files you need!
+
+> **Note:** Folder mode skips `node_modules`, `dist`, `.git`, and other build directories automatically.
 
 ## � Dependency Graph
 
