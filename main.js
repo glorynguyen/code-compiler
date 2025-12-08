@@ -291,8 +291,23 @@ ipcMain.handle('analyze-dependencies', async (event, inputPath) => {
   }
 });
 
+// IPC Handler for scanning folder contents
+ipcMain.handle('scan-folder', async (event, folderPath) => {
+  try {
+    const files = findFilesInDirectory(folderPath);
+    const relativeFiles = files.map(f => ({
+      path: f,
+      relativePath: path.relative(folderPath, f),
+      name: path.basename(f)
+    }));
+    return { success: true, files: relativeFiles };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
 // 3. Cập nhật handler xử lý file
-ipcMain.handle('process-files', async (event, inputPath, outputPath, outputMode, shouldCompress, shouldMinify, isFolder) => {
+ipcMain.handle('process-files', async (event, inputPath, outputPath, outputMode, shouldCompress, shouldMinify, isFolder, selectedFiles) => {
   try {
     let finalContent = '';
     let stats = {};
@@ -300,9 +315,14 @@ ipcMain.handle('process-files', async (event, inputPath, outputPath, outputMode,
     // Determine the list of files to process
     let filesToProcess = [];
     if (isFolder) {
-      filesToProcess = findFilesInDirectory(inputPath);
+      // Use selected files if provided, otherwise scan folder
+      if (selectedFiles && selectedFiles.length > 0) {
+        filesToProcess = selectedFiles;
+      } else {
+        filesToProcess = findFilesInDirectory(inputPath);
+      }
       if (filesToProcess.length === 0) {
-        throw new Error('No .ts, .tsx, .js, or .jsx files found in the selected folder');
+        throw new Error('No files selected or found in the folder');
       }
     } else {
       filesToProcess = [inputPath];
@@ -355,25 +375,46 @@ ipcMain.handle('process-files', async (event, inputPath, outputPath, outputMode,
       // 5. Run esbuild - process each file individually for folder mode
       let bundledOutputs = [];
 
+      // Loader config to handle CSS and assets (treat as empty/external)
+      const loaderConfig = {
+        '.css': 'empty',
+        '.scss': 'empty',
+        '.sass': 'empty',
+        '.less': 'empty',
+        '.png': 'empty',
+        '.jpg': 'empty',
+        '.jpeg': 'empty',
+        '.gif': 'empty',
+        '.svg': 'empty',
+        '.ico': 'empty',
+        '.woff': 'empty',
+        '.woff2': 'empty',
+        '.ttf': 'empty',
+        '.eot': 'empty',
+      };
+
       if (isFolder) {
-        // For folder mode, process each file separately and concatenate
+        // For folder mode, concatenate files WITHOUT bundling (to avoid duplicating shared deps)
+        // Each file is read raw, optionally minified via esbuild transform
         for (const file of filesToProcess) {
           try {
-            const result = esbuild.buildSync({
-              entryPoints: [file],
-              bundle: true,
-              treeShaking: true,
-              minify: shouldMinify,
-              format: 'esm',
-              target: 'esnext',
-              platform: 'node',
-              tsconfig: hasTsConfig ? tsconfigPath : undefined,
-              write: false,
-              external: externalDeps,
-            });
-            bundledOutputs.push(`// === ${path.relative(inputPath, file)} ===\n${result.outputFiles[0].text}`);
+            let content = fs.readFileSync(file, 'utf-8');
+
+            if (shouldMinify) {
+              // Use esbuild.transform for minification only (no bundling)
+              const ext = path.extname(file).slice(1);
+              const loader = ['ts', 'tsx', 'jsx'].includes(ext) ? ext : 'js';
+              const result = esbuild.transformSync(content, {
+                loader: loader,
+                minify: true,
+                target: 'esnext',
+              });
+              content = result.code;
+            }
+
+            bundledOutputs.push(`// === ${path.relative(inputPath, file)} ===\n${content}`);
           } catch (e) {
-            // If bundling fails for a file, include it as-is
+            // If transform fails, include raw content
             const rawContent = fs.readFileSync(file, 'utf-8');
             bundledOutputs.push(`// === ${path.relative(inputPath, file)} (raw) ===\n${rawContent}`);
           }
@@ -392,6 +433,7 @@ ipcMain.handle('process-files', async (event, inputPath, outputPath, outputMode,
           tsconfig: hasTsConfig ? tsconfigPath : undefined,
           write: false,
           external: externalDeps,
+          loader: loaderConfig,
         });
         finalContent = result.outputFiles[0].text;
       }

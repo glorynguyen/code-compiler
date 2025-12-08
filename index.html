@@ -179,6 +179,81 @@
       word-break: break-all;
     }
 
+    /* File Picker List */
+    .file-picker {
+      display: none;
+      margin-top: 15px;
+      background: #f8f9fa;
+      border-radius: 10px;
+      padding: 15px;
+      max-height: 250px;
+      overflow-y: auto;
+    }
+
+    .file-picker.show {
+      display: block;
+    }
+
+    .file-picker-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid #ddd;
+    }
+
+    .file-picker-header span {
+      font-weight: 600;
+      color: #333;
+    }
+
+    .file-picker-actions {
+      display: flex;
+      gap: 8px;
+    }
+
+    .file-picker-actions button {
+      padding: 4px 10px;
+      font-size: 11px;
+      background: #667eea;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+
+    .file-picker-actions button:hover {
+      background: #5568d3;
+    }
+
+    .file-picker-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 8px;
+      border-radius: 5px;
+      cursor: pointer;
+      font-size: 13px;
+      font-family: 'Monaco', 'Menlo', monospace;
+    }
+
+    .file-picker-item:hover {
+      background: #e9ecef;
+    }
+
+    .file-picker-item input {
+      margin: 0;
+      accent-color: #667eea;
+    }
+
+    .file-picker-count {
+      font-size: 12px;
+      color: #666;
+      margin-top: 10px;
+      text-align: right;
+    }
+
     /* Dependency Graph Modal */
     .modal-overlay {
       display: none;
@@ -398,6 +473,19 @@
         <input type="text" id="inputPath" placeholder="Select entry file..." readonly>
         <button class="browse-btn" id="browseInputBtn" onclick="selectInput()">Browse</button>
       </div>
+
+      <!-- File Picker for Folder Mode -->
+      <div class="file-picker" id="filePicker">
+        <div class="file-picker-header">
+          <span>📁 Select files to include:</span>
+          <div class="file-picker-actions">
+            <button onclick="selectAllFiles()">Select All</button>
+            <button onclick="deselectAllFiles()">Deselect All</button>
+          </div>
+        </div>
+        <div id="filePickerList"></div>
+        <div class="file-picker-count" id="filePickerCount"></div>
+      </div>
     </div>
 
     <!-- Output mode selection -->
@@ -462,6 +550,8 @@
     let outputFilePath = null;
     let outputMode = 'file'; // 'file' or 'clipboard'
     let inputType = 'file'; // 'file' or 'folder'
+    let availableFiles = []; // Files found in folder
+    let selectedFiles = new Set(); // Selected file paths
 
     function handleInputTypeChange() {
       const radios = document.getElementsByName('inputType');
@@ -490,6 +580,10 @@
       // Reset input when switching types
       inputFilePath = null;
       inputPathEl.value = '';
+      availableFiles = [];
+      selectedFiles.clear();
+      document.getElementById('filePicker').classList.remove('show');
+      document.getElementById('filePickerList').innerHTML = '';
       checkCanProcess();
     }
 
@@ -499,6 +593,7 @@
         if (path) {
           inputFilePath = path;
           document.getElementById('inputPath').value = path;
+          await scanFolder(path);
           checkCanProcess();
         }
       } else {
@@ -506,9 +601,63 @@
         if (path) {
           inputFilePath = path;
           document.getElementById('inputPath').value = path;
+          document.getElementById('filePicker').classList.remove('show');
           checkCanProcess();
         }
       }
+    }
+
+    async function scanFolder(folderPath) {
+      const result = await ipcRenderer.invoke('scan-folder', folderPath);
+      if (result.success) {
+        availableFiles = result.files;
+        selectedFiles = new Set(result.files.map(f => f.path)); // Select all by default
+        renderFilePicker();
+        document.getElementById('filePicker').classList.add('show');
+      } else {
+        alert('Error scanning folder: ' + result.error);
+      }
+    }
+
+    function renderFilePicker() {
+      const listEl = document.getElementById('filePickerList');
+      listEl.innerHTML = availableFiles.map(file => `
+        <label class="file-picker-item">
+          <input type="checkbox" 
+                 value="${file.path}" 
+                 ${selectedFiles.has(file.path) ? 'checked' : ''}
+                 onchange="toggleFileSelection(this)">
+          <span>${file.relativePath}</span>
+        </label>
+      `).join('');
+      updateFileCount();
+    }
+
+    function toggleFileSelection(checkbox) {
+      if (checkbox.checked) {
+        selectedFiles.add(checkbox.value);
+      } else {
+        selectedFiles.delete(checkbox.value);
+      }
+      updateFileCount();
+      checkCanProcess();
+    }
+
+    function selectAllFiles() {
+      availableFiles.forEach(f => selectedFiles.add(f.path));
+      renderFilePicker();
+      checkCanProcess();
+    }
+
+    function deselectAllFiles() {
+      selectedFiles.clear();
+      renderFilePicker();
+      checkCanProcess();
+    }
+
+    function updateFileCount() {
+      const countEl = document.getElementById('filePickerCount');
+      countEl.textContent = `${selectedFiles.size} of ${availableFiles.length} files selected`;
     }
 
 
@@ -557,16 +706,25 @@
       const btn = document.getElementById('processBtn');
       const graphBtn = document.getElementById('showGraphBtn');
 
-      if (outputMode === 'file') {
-        // File mode requires both input and output
-        btn.disabled = !(inputFilePath && outputFilePath);
+      let canProcess = false;
+
+      if (inputType === 'folder') {
+        // Folder mode requires selected files
+        canProcess = inputFilePath && selectedFiles.size > 0;
       } else {
-        // Clipboard mode only requires input
-        btn.disabled = !inputFilePath;
+        // File mode requires input file
+        canProcess = !!inputFilePath;
       }
 
-      // Graph button only needs input file
-      graphBtn.disabled = !inputFilePath;
+      if (outputMode === 'file') {
+        // File output mode also requires output path
+        canProcess = canProcess && outputFilePath;
+      }
+
+      btn.disabled = !canProcess;
+
+      // Graph button only for file mode with input file
+      graphBtn.disabled = !inputFilePath || inputType === 'folder';
     }
 
     // Dependency Graph Functions
@@ -693,9 +851,10 @@
       btn.textContent = 'Processing...';
       resultDiv.style.display = 'none';
 
-      // Pass outputMode and isFolder to backend
+      // Pass outputMode, isFolder, and selectedFiles to backend
       const isFolder = inputType === 'folder';
-      const result = await ipcRenderer.invoke('process-files', inputFilePath, outputFilePath, outputMode, shouldCompress, shouldMinify, isFolder);
+      const filesToSend = isFolder ? Array.from(selectedFiles) : null;
+      const result = await ipcRenderer.invoke('process-files', inputFilePath, outputFilePath, outputMode, shouldCompress, shouldMinify, isFolder, filesToSend);
 
       btn.disabled = false;
       btn.textContent = originalText;
