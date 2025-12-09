@@ -183,24 +183,46 @@
     .file-picker {
       display: none;
       margin-top: 15px;
-      background: #f8f9fa;
+      background: #fff;
+      border: 2px solid #e0e0e0;
       border-radius: 10px;
-      padding: 15px;
-      max-height: 250px;
+      padding: 0;
+      max-height: 400px;
       overflow-y: auto;
+      overflow-x: hidden;
     }
 
     .file-picker.show {
-      display: block;
+      display: flex;
+      flex-direction: column;
     }
 
     .file-picker-header {
+      background: #f8f9fa;
+      padding: 12px 15px;
+      border-bottom: 1px solid #eee;
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 10px;
-      padding-bottom: 10px;
-      border-bottom: 1px solid #ddd;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+
+    #filePickerList {
+      padding: 10px;
+    }
+
+    .tree-container {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      font-size: 13px;
+    }
+
+    .tree-item {
+      display: flex;
+      align-items: center;
+      padding: 4px 0;
+      border-radius: 4px;
     }
 
     .file-picker-header span {
@@ -365,7 +387,17 @@
     }
 
     .tree-item:hover {
-      background: #f5f5f5;
+      background-color: #f0f4ff;
+    }
+
+    .tree-row-content {
+      display: flex;
+      align-items: center;
+      cursor: pointer;
+      flex: 1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
 
     .tree-item.entry {
@@ -391,15 +423,57 @@
     }
 
     .tree-toggle {
-      font-size: 10px;
-      width: 16px;
-      text-align: center;
+      width: 20px;
+      height: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
       color: #888;
+      font-size: 10px;
+      user-select: none;
+      transition: transform 0.2s;
     }
 
-    .tree-children {
-      margin-left: 16px;
+    .tree-toggle.rotated {
+      transform: rotate(90deg);
     }
+
+    .tree-checkbox {
+      margin: 0 8px 0 4px;
+      cursor: pointer;
+      accent-color: #667eea;
+      width: 16px;
+      height: 16px;
+    }
+
+    .tree-icon {
+      margin-right: 6px;
+      font-size: 14px;
+    }
+
+    .tree-label {
+      color: #333;
+    }
+
+
+    .tree-children {
+      margin-left: 22px; /* Indentation */
+      display: none;
+      border-left: 1px solid #eee;
+    }
+
+    .tree-children.expanded {
+      display: block;
+    }
+
+    .folder-icon { color: #F8D775; text-shadow: 0 1px 1px rgba(0,0,0,0.1); }
+    .file-icon { color: #a0a0a0; }
+    .ts-icon { color: #3178c6; }
+    .js-icon { color: #f7df1e; }
+    .jsx-icon { color: #61dafb; }
+    .css-icon { color: #563d7c; }
+
 
     .tree-children.collapsed {
       display: none;
@@ -611,12 +685,229 @@
       const result = await ipcRenderer.invoke('scan-folder', folderPath);
       if (result.success) {
         availableFiles = result.files;
-        selectedFiles = new Set(result.files.map(f => f.path)); // Select all by default
-        renderFilePicker();
+        selectedFiles = new Set(result.files.map(f => f.path));
+        renderFileTree();
         document.getElementById('filePicker').classList.add('show');
       } else {
         alert('Error scanning folder: ' + result.error);
       }
+    }
+
+    /**
+     * Converts flat file list to nested tree structure
+     */
+    function buildTree(files) {
+      const root = { name: "root", type: "folder", children: {}, path: "", fullPath: "" };
+
+      files.forEach(file => {
+        const parts = file.relativePath.replace(/\\/g, '/').split('/');
+        let current = root;
+
+        parts.forEach((part, index) => {
+          const isFile = index === parts.length - 1;
+
+          if (!current.children[part]) {
+            if (isFile) {
+              current.children[part] = {
+                name: part,
+                type: 'file',
+                path: file.path,
+                relativePath: file.relativePath
+              };
+            } else {
+              current.children[part] = {
+                name: part,
+                type: 'folder',
+                children: {},
+                path: parts.slice(0, index + 1).join('/'),
+                filesInFolder: []
+              };
+            }
+          }
+          current = current.children[part];
+        });
+      });
+
+      return root;
+    }
+
+    function renderFileTree() {
+      const treeRoot = buildTree(availableFiles);
+      const container = document.getElementById('filePickerList');
+      container.innerHTML = '<div class="tree-container">' + renderTreeNodes(treeRoot.children) + '</div>';
+
+      updateParentCheckboxes();
+      updateFileCount();
+    }
+
+    /**
+     * Recursive function to generate HTML for the tree
+     */
+    function renderTreeNodes(nodes) {
+      // Sort: Folders first, then Files, both alphabetical
+      const sortedKeys = Object.keys(nodes).sort((a, b) => {
+        const nodeA = nodes[a];
+        const nodeB = nodes[b];
+        if (nodeA.type === nodeB.type) return a.localeCompare(b);
+        return nodeA.type === 'folder' ? -1 : 1;
+      });
+
+      let html = '';
+
+      for (const key of sortedKeys) {
+        const node = nodes[key];
+
+        if (node.type === 'folder') {
+          // Get all nested files for this folder (for value attribute)
+          const allChildPaths = getAllFilePathsInNode(node);
+          const childPathsStr = JSON.stringify(allChildPaths).replace(/"/g, '&quot;');
+
+          html += `
+            <div>
+              <div class="tree-item">
+                <div class="tree-toggle" onclick="toggleTreeFolder(this)">▶</div>
+                <input type="checkbox" 
+                      class="tree-checkbox folder-checkbox" 
+                      data-children="${childPathsStr}"
+                      onchange="handleFolderCheckbox(this)">
+                <div class="tree-row-content" onclick="toggleTreeFolder(this.previousElementSibling.previousElementSibling)">
+                  <span class="tree-icon folder-icon">📂</span>
+                  <span class="tree-label">${node.name}</span>
+                </div>
+              </div>
+              <div class="tree-children">
+                ${renderTreeNodes(node.children)}
+              </div>
+            </div>
+          `;
+        } else {
+          // It's a file
+          const isSelected = selectedFiles.has(node.path);
+          const icon = getFileIcon(node.name);
+
+          html += `
+            <div class="tree-item">
+              <div class="tree-toggle"></div> <!-- Spacer -->
+              <input type="checkbox" 
+                    class="tree-checkbox file-checkbox" 
+                    value="${node.path}" 
+                    ${isSelected ? 'checked' : ''}
+                    onchange="handleFileCheckbox(this)">
+              <label class="tree-row-content">
+                <span class="tree-icon ${icon.class}">${icon.emoji}</span>
+                <span class="tree-label">${node.name}</span>
+              </label>
+            </div>
+          `;
+        }
+      }
+
+      return html;
+    }
+
+    // Helper to collect all absolute file paths under a folder node
+    function getAllFilePathsInNode(node) {
+      let paths = [];
+      if (node.type === 'file') {
+        paths.push(node.path);
+      } else if (node.children) {
+        Object.values(node.children).forEach(child => {
+          paths = paths.concat(getAllFilePathsInNode(child));
+        });
+      }
+      return paths;
+    }
+
+    function getFileIcon(filename) {
+      if (filename.endsWith('.ts')) return { emoji: 'TS', class: 'ts-icon' };
+      if (filename.endsWith('.tsx')) return { emoji: 'TSX', class: 'ts-icon' };
+      if (filename.endsWith('.js')) return { emoji: 'JS', class: 'js-icon' };
+      if (filename.endsWith('.jsx')) return { emoji: 'JSX', class: 'jsx-icon' };
+      return { emoji: '📄', class: 'file-icon' };
+    }
+
+    function toggleTreeFolder(toggleBtn) {
+      const childrenContainer = toggleBtn.parentElement.nextElementSibling;
+
+      if (childrenContainer.classList.contains('expanded')) {
+        childrenContainer.classList.remove('expanded');
+        toggleBtn.textContent = '▶';
+        toggleBtn.classList.remove('rotated');
+      } else {
+        childrenContainer.classList.add('expanded');
+        toggleBtn.textContent = '▼'; // Visual change often handled by rotation, but char change is safe
+        toggleBtn.classList.add('rotated');
+      }
+    }
+
+    function handleFileCheckbox(checkbox) {
+      if (checkbox.checked) {
+        selectedFiles.add(checkbox.value);
+      } else {
+        selectedFiles.delete(checkbox.value);
+      }
+      updateParentCheckboxes();
+      updateFileCount();
+      checkCanProcess();
+    }
+
+    function handleFolderCheckbox(checkbox) {
+      const childPaths = JSON.parse(checkbox.getAttribute('data-children'));
+      const isChecked = checkbox.checked;
+
+      // Update logic model
+      childPaths.forEach(path => {
+        if (isChecked) {
+          selectedFiles.add(path);
+        } else {
+          selectedFiles.delete(path);
+        }
+      });
+
+      // Update UI visual state (find all file inputs inside this folder's DOM)
+      const container = checkbox.parentElement.nextElementSibling;
+      const childInputs = container.querySelectorAll('input[type="checkbox"]');
+      childInputs.forEach(input => {
+        input.checked = isChecked;
+        input.indeterminate = false;
+      });
+
+      updateParentCheckboxes(); // Walk up the tree to update parents
+      updateFileCount();
+      checkCanProcess();
+    }
+
+    /**
+ * Logic to handle "Indeterminate" (-) states for parent folders
+ * based on their children's status.
+ */
+    function updateParentCheckboxes() {
+      const folderCheckboxes = Array.from(document.querySelectorAll('.folder-checkbox')).reverse(); // Bottom-up approximation
+
+      // We actually need to traverse the DOM to be accurate about hierarchy
+      // A simple way is to re-evaluate every folder based on the global `selectedFiles` set
+
+      const allFolderCheckboxes = document.querySelectorAll('.folder-checkbox');
+
+      allFolderCheckboxes.forEach(folderCb => {
+        const childPaths = JSON.parse(folderCb.getAttribute('data-children'));
+        let selectedCount = 0;
+
+        childPaths.forEach(path => {
+          if (selectedFiles.has(path)) selectedCount++;
+        });
+
+        if (selectedCount === 0) {
+          folderCb.checked = false;
+          folderCb.indeterminate = false;
+        } else if (selectedCount === childPaths.length) {
+          folderCb.checked = true;
+          folderCb.indeterminate = false;
+        } else {
+          folderCb.checked = false;
+          folderCb.indeterminate = true;
+        }
+      });
     }
 
     function renderFilePicker() {
@@ -645,13 +936,29 @@
 
     function selectAllFiles() {
       availableFiles.forEach(f => selectedFiles.add(f.path));
-      renderFilePicker();
+      
+      // Update UI
+      const checkboxes = document.querySelectorAll('.file-picker input[type="checkbox"]');
+      checkboxes.forEach(cb => {
+        cb.checked = true;
+        cb.indeterminate = false;
+      });
+      
+      updateFileCount();
       checkCanProcess();
     }
 
     function deselectAllFiles() {
       selectedFiles.clear();
-      renderFilePicker();
+      
+      // Update UI
+      const checkboxes = document.querySelectorAll('.file-picker input[type="checkbox"]');
+      checkboxes.forEach(cb => {
+        cb.checked = false;
+        cb.indeterminate = false;
+      });
+      
+      updateFileCount();
       checkCanProcess();
     }
 

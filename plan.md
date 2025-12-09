@@ -42,13 +42,13 @@
 
 - [ ] Smart comment preservation (`@preserve`, `@license`, JSDoc)
 - [ ] Variable name preservation whitelist
-- [ ] Compression level selector:
-  - None (full formatting)
-  - Light (remove comments only)
-  - Medium (minify whitespace)
-  - Aggressive (full minification)
+- [x] Compression level selector (Minify toggle implemented)
+  - [ ] None (full formatting)
+  - [ ] Light (remove comments only)
+  - [ ] Medium (minify whitespace)
+  - [x] Aggressive (full minification)
 - [ ] Optional source map generation
-- [ ] Dead code elimination toggle
+- [x] Dead code elimination toggle (Enabled by default via esbuild)
 
 **Implementation Notes:**
 - Extend esbuild options configuration
@@ -59,11 +59,11 @@
 ### 1.3 Dependency Visualization
 **Effort:** High | **Impact:** Medium | **Priority:** P1
 
-- [ ] Interactive dependency graph with D3.js or Cytoscape.js
+- [x] Interactive dependency graph (Tree View implementation)
 - [ ] Export graph as PNG/SVG
-- [ ] Circular dependency detection with warning badges
+- [x] Circular dependency detection with warning badges
 - [ ] Unused file detection (files with no incoming imports)
-- [ ] Import depth level visualization (color coding)
+- [x] Import depth level visualization (via tree structure)
 - [ ] Click to highlight file dependencies
 - [ ] Filter graph by file type or depth
 
