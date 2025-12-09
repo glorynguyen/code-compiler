@@ -3,8 +3,138 @@ const path = require('path');
 const { app, BrowserWindow, ipcMain, dialog, clipboard } = require('electron');
 const esbuild = require('esbuild');
 
-// Helper function to recursively find all JS/TS files in a directory
-function findFilesInDirectory(dirPath, extensions = ['.ts', '.tsx', '.js', '.jsx']) {
+const minimatch = require('minimatch');
+
+class IgnorePatternManager {
+  constructor() {
+    this.patterns = [];
+    this.negationPatterns = [];
+  }
+
+  parseGitignore(gitignorePath) {
+    if (!fs.existsSync(gitignorePath)) {
+      return [];
+    }
+
+    const content = fs.readFileSync(gitignorePath, 'utf-8');
+    const lines = content.split('\n');
+    const patterns = [];
+
+    for (let line of lines) {
+      line = line.trim();
+
+      if (!line || line.startsWith('#')) continue;
+
+      patterns.push(line);
+    }
+
+    return patterns;
+  }
+
+  loadGitignore(projectRoot) {
+    const gitignorePath = path.join(projectRoot, '.gitignore');
+    const gitignorePatterns = this.parseGitignore(gitignorePath);
+    this.addPatterns(gitignorePatterns);
+  }
+
+  addPatterns(patterns) {
+    for (const pattern of patterns) {
+      if (pattern.startsWith('!')) {
+        this.negationPatterns.push(pattern.substring(1));
+      } else {
+        this.patterns.push(pattern);
+      }
+    }
+  }
+
+  clear() {
+    this.patterns = [];
+    this.negationPatterns = [];
+  }
+
+  shouldIgnore(filePath, projectRoot) {
+    const relativePath = path.relative(projectRoot, filePath);
+    const normalizedPath = relativePath.split(path.sep).join('/');
+
+    for (const pattern of this.negationPatterns) {
+      if (minimatch(normalizedPath, pattern, { dot: true, matchBase: true })) {
+        return false;
+      }
+    }
+
+    for (const pattern of this.patterns) {
+      if (minimatch(normalizedPath, pattern, { dot: true, matchBase: true })) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  static getPresets() {
+    return {
+      tests: {
+        name: 'Tests',
+        patterns: [
+          '**/*.test.ts',
+          '**/*.test.tsx',
+          '**/*.test.js',
+          '**/*.test.jsx',
+          '**/*.spec.ts',
+          '**/*.spec.tsx',
+          '**/*.spec.js',
+          '**/*.spec.jsx',
+          '**/__tests__/**',
+          '**/test/**',
+          '**/tests/**'
+        ]
+      },
+      configs: {
+        name: 'Configs',
+        patterns: [
+          '*.config.js',
+          '*.config.ts',
+          '*.config.mjs',
+          '.env*',
+          '.eslintrc*',
+          '.prettierrc*',
+          'tsconfig.json',
+          'jsconfig.json',
+          'webpack.config.*',
+          'vite.config.*',
+          'rollup.config.*'
+        ]
+      },
+      documentation: {
+        name: 'Documentation',
+        patterns: [
+          '*.md',
+          '*.mdx',
+          'docs/**',
+          'documentation/**',
+          'README*',
+          'CHANGELOG*',
+          'LICENSE*'
+        ]
+      },
+      buildArtifacts: {
+        name: 'Build Artifacts',
+        patterns: [
+          'dist/**',
+          'build/**',
+          'out/**',
+          '.next/**',
+          'coverage/**',
+          '*.log',
+          '*.tsbuildinfo',
+          '.cache/**'
+        ]
+      }
+    };
+  }
+}
+
+function findFilesInDirectory(dirPath, extensions = ['.ts', '.tsx', '.js', '.jsx'], ignoreManager = null, projectRoot = null) {
   const files = [];
 
   function walkDir(currentPath) {
@@ -13,13 +143,21 @@ function findFilesInDirectory(dirPath, extensions = ['.ts', '.tsx', '.js', '.jsx
     for (const entry of entries) {
       const fullPath = path.join(currentPath, entry.name);
 
-      // Skip node_modules, dist, and hidden directories
       if (entry.isDirectory()) {
+        if (ignoreManager && projectRoot && ignoreManager.shouldIgnore(fullPath, projectRoot)) {
+          continue;
+        }
+
         if (!['node_modules', 'dist', '.git', '.next', 'build', 'coverage'].includes(entry.name)) {
           walkDir(fullPath);
         }
       } else if (entry.isFile()) {
         const ext = path.extname(entry.name).toLowerCase();
+
+        if (ignoreManager && projectRoot && ignoreManager.shouldIgnore(fullPath, projectRoot)) {
+          continue;
+        }
+
         if (extensions.includes(ext)) {
           files.push(fullPath);
         }
@@ -37,6 +175,7 @@ class CodeCombiner {
     this.output = [];
     this.projectRoot = null;
     this.projectDependencies = new Set();
+    this.ignoreManager = new IgnorePatternManager();
   }
 
   extractImports(content) {
@@ -46,18 +185,17 @@ class CodeCombiner {
 
     while ((match = importRegex.exec(content)) !== null) {
       const importPath = match[1];
-
       const pathParts = importPath.split('/');
       const rootPackage = importPath.startsWith('@') && pathParts.length > 1
         ? `${pathParts[0]}/${pathParts[1]}`
         : pathParts[0];
 
       const isDependency = this.projectDependencies.has(rootPackage);
-
       if (!isDependency) {
         imports.push(importPath);
       }
     }
+
     return imports;
   }
 
@@ -79,19 +217,21 @@ class CodeCombiner {
         const testPath = fullPath + ext;
         if (fs.existsSync(testPath)) return testPath;
       }
+
       for (const ext of extensions) {
         const indexPath = path.join(fullPath, `index${ext}`);
         if (fs.existsSync(indexPath)) return indexPath;
       }
     }
+
     return fs.existsSync(fullPath) ? fullPath : null;
   }
 
   detectRoot(entryFilePath) {
     let currentDir = path.dirname(entryFilePath);
+
     while (currentDir !== path.parse(currentDir).root) {
       const pkgPath = path.join(currentDir, 'package.json');
-
       if (fs.existsSync(pkgPath)) {
         try {
           const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
@@ -111,20 +251,20 @@ class CodeCombiner {
         return currentDir;
       }
 
-      if (fs.existsSync(path.join(currentDir, 'src')) && fs.lstatSync(path.join(currentDir, 'src')).isDirectory()) {
+      if (fs.existsSync(path.join(currentDir, 'src')) &&
+        fs.lstatSync(path.join(currentDir, 'src')).isDirectory()) {
         return currentDir;
       }
+
       currentDir = path.dirname(currentDir);
     }
+
     return path.dirname(entryFilePath);
   }
 
   minifyContent(content) {
-    // 1. Remove multi-line comments
-    content = content.replace(/\/\*[\s\S]*?\*\//g, "");
-    // 2. Remove single-line comments
+    content = content.replace(/\/\*[\s\S]*?\*\//g, '');
     content = content.replace(/\/\/[^\n]*$/gm, "");
-    // 3. Replace multiple whitespace (spaces, tabs, newlines) with a single space
     content = content.replace(/\s+/g, ' ');
     return content.trim();
   }
@@ -137,6 +277,11 @@ class CodeCombiner {
       console.log(`Project Root detected at: ${this.projectRoot}`);
     }
 
+    if (this.ignoreManager.shouldIgnore(normalizedPath, this.projectRoot)) {
+      console.log(`Ignoring file: ${normalizedPath}`);
+      return;
+    }
+
     if (this.processedFiles.has(normalizedPath)) return;
 
     if (!fs.existsSync(normalizedPath)) {
@@ -145,8 +290,8 @@ class CodeCombiner {
     }
 
     this.processedFiles.add(normalizedPath);
-    let content = fs.readFileSync(normalizedPath, 'utf-8');
 
+    let content = fs.readFileSync(normalizedPath, 'utf-8');
     const imports = this.extractImports(content);
 
     for (const importPath of imports) {
@@ -158,7 +303,7 @@ class CodeCombiner {
 
     if (compress) {
       content = this.minifyContent(content);
-      this.output.push(`\n/* File: ${path.basename(normalizedPath)} */`);
+      this.output.push(`\n`);
       this.output.push(content);
     } else {
       this.output.push(`\n${'='.repeat(80)}`);
@@ -195,14 +340,25 @@ class CodeCombiner {
     }
 
     if (visited.has(normalizedPath)) {
-      return { name: path.basename(normalizedPath), path: normalizedPath, circular: true, children: [] };
+      return {
+        name: path.basename(normalizedPath),
+        path: normalizedPath,
+        circular: true,
+        children: []
+      };
     }
 
     if (!fs.existsSync(normalizedPath)) {
-      return { name: path.basename(filePath), path: filePath, missing: true, children: [] };
+      return {
+        name: path.basename(filePath),
+        path: filePath,
+        missing: true,
+        children: []
+      };
     }
 
     visited.add(normalizedPath);
+
     const content = fs.readFileSync(normalizedPath, 'utf-8');
     const imports = this.extractImports(content);
     const children = [];
@@ -222,19 +378,19 @@ class CodeCombiner {
   }
 }
 
-// ... (Giữ nguyên logic tạo window) ...
 let mainWindow;
 const combiner = new CodeCombiner();
 
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 800,
-    height: 900, // Tăng chiều cao một chút
+    height: 900,
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false
     }
   });
+
   mainWindow.loadFile('index.html');
 }
 
@@ -248,7 +404,6 @@ app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) createWindow();
 });
 
-// IPC Handlers
 ipcMain.handle('select-input-file', async () => {
   const result = await dialog.showOpenDialog(mainWindow, {
     properties: ['openFile'],
@@ -260,7 +415,6 @@ ipcMain.handle('select-input-file', async () => {
   return (!result.canceled && result.filePaths.length > 0) ? result.filePaths[0] : null;
 });
 
-// IPC Handler for selecting a folder
 ipcMain.handle('select-input-folder', async () => {
   const result = await dialog.showOpenDialog(mainWindow, {
     properties: ['openDirectory']
@@ -279,7 +433,79 @@ ipcMain.handle('select-output-file', async () => {
   return (!result.canceled && result.filePath) ? result.filePath : null;
 });
 
-// IPC Handler for Dependency Graph Analysis
+ipcMain.handle('get-ignore-presets', async () => {
+  return IgnorePatternManager.getPresets();
+});
+
+ipcMain.handle('load-gitignore', async (event, projectRoot) => {
+  try {
+    combiner.ignoreManager.loadGitignore(projectRoot);
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('set-ignore-patterns', async (event, patterns) => {
+  try {
+    combiner.ignoreManager.clear();
+    combiner.ignoreManager.addPatterns(patterns);
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('add-ignore-patterns', async (event, patterns) => {
+  try {
+    combiner.ignoreManager.addPatterns(patterns);
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('clear-ignore-patterns', async () => {
+  combiner.ignoreManager.clear();
+  return { success: true };
+});
+
+ipcMain.handle('preview-ignored-files', async (event, folderPath, patterns) => {
+  try {
+    const tempIgnoreManager = new IgnorePatternManager();
+    tempIgnoreManager.addPatterns(patterns);
+
+    const allFiles = findFilesInDirectory(folderPath);
+    const ignoredFiles = [];
+    const includedFiles = [];
+
+    for (const file of allFiles) {
+      if (tempIgnoreManager.shouldIgnore(file, folderPath)) {
+        ignoredFiles.push({
+          path: file,
+          relativePath: path.relative(folderPath, file)
+        });
+      } else {
+        includedFiles.push({
+          path: file,
+          relativePath: path.relative(folderPath, file)
+        });
+      }
+    }
+
+    return {
+      success: true,
+      ignoredFiles,
+      includedFiles,
+      totalFiles: allFiles.length,
+      ignoredCount: ignoredFiles.length,
+      includedCount: includedFiles.length
+    };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
 ipcMain.handle('analyze-dependencies', async (event, inputPath) => {
   try {
     combiner.reset();
@@ -291,10 +517,10 @@ ipcMain.handle('analyze-dependencies', async (event, inputPath) => {
   }
 });
 
-// IPC Handler for scanning folder contents
 ipcMain.handle('scan-folder', async (event, folderPath) => {
   try {
-    const files = findFilesInDirectory(folderPath);
+    const projectRoot = folderPath;
+    const files = findFilesInDirectory(folderPath, ['.ts', '.tsx', '.js', '.jsx'], combiner.ignoreManager, projectRoot);
     const relativeFiles = files.map(f => ({
       path: f,
       relativePath: path.relative(folderPath, f),
@@ -306,21 +532,20 @@ ipcMain.handle('scan-folder', async (event, folderPath) => {
   }
 });
 
-// 3. Cập nhật handler xử lý file
 ipcMain.handle('process-files', async (event, inputPath, outputPath, outputMode, shouldCompress, shouldMinify, isFolder, selectedFiles) => {
   try {
     let finalContent = '';
     let stats = {};
-
-    // Determine the list of files to process
     let filesToProcess = [];
+
     if (isFolder) {
-      // Use selected files if provided, otherwise scan folder
       if (selectedFiles && selectedFiles.length > 0) {
         filesToProcess = selectedFiles;
       } else {
-        filesToProcess = findFilesInDirectory(inputPath);
+        const projectRoot = inputPath;
+        filesToProcess = findFilesInDirectory(inputPath, ['.ts', '.tsx', '.js', '.jsx'], combiner.ignoreManager, projectRoot);
       }
+
       if (filesToProcess.length === 0) {
         throw new Error('No files selected or found in the folder');
       }
@@ -329,17 +554,11 @@ ipcMain.handle('process-files', async (event, inputPath, outputPath, outputMode,
     }
 
     if (shouldCompress) {
-      // --- MODE A: Tree-Shaking (esbuild) ---
-
-      // 1. Detect Project Root
       const projectRoot = combiner.detectRoot(filesToProcess[0]);
-
-      // 2. Resolve Configuration Files
       const tsconfigPath = path.join(projectRoot, 'tsconfig.json');
       const pkgPath = path.join(projectRoot, 'package.json');
       const hasTsConfig = fs.existsSync(tsconfigPath);
 
-      // 3. Build External Array from package.json
       let externalDeps = [];
       if (fs.existsSync(pkgPath)) {
         try {
@@ -358,24 +577,21 @@ ipcMain.handle('process-files', async (event, inputPath, outputPath, outputMode,
         }
       }
 
-      // Add patterns to ignore CSS, images, and other non-JS assets
       externalDeps.push('*.css', '*.scss', '*.sass', '*.less');
       externalDeps.push('*.png', '*.jpg', '*.jpeg', '*.gif', '*.svg', '*.ico');
       externalDeps.push('*.woff', '*.woff2', '*.ttf', '*.eot');
 
-      // 4. Get original size (before compression) for comparison
       combiner.reset();
       for (const file of filesToProcess) {
         combiner.processFile(file, false);
       }
+
       const originalContent = combiner.getCombinedContent();
       const originalSize = originalContent.length;
+
       combiner.reset();
 
-      // 5. Run esbuild - process each file individually for folder mode
       let bundledOutputs = [];
-
-      // Loader config to handle CSS and assets (treat as empty/external)
       const loaderConfig = {
         '.css': 'empty',
         '.scss': 'empty',
@@ -394,15 +610,12 @@ ipcMain.handle('process-files', async (event, inputPath, outputPath, outputMode,
       };
 
       if (isFolder) {
-        // For folder mode, use CodeCombiner to properly follow imports and deduplicate
-        // The processedFiles Set ensures each file is only included once
         combiner.reset();
         for (const file of filesToProcess) {
-          combiner.processFile(file, true); // compress=true for compact output with file markers
+          combiner.processFile(file, true);
         }
         finalContent = combiner.getCombinedContent();
 
-        // Optionally minify the combined output
         if (shouldMinify) {
           try {
             const result = esbuild.transformSync(finalContent, {
@@ -412,12 +625,10 @@ ipcMain.handle('process-files', async (event, inputPath, outputPath, outputMode,
             });
             finalContent = result.code;
           } catch (e) {
-            // If minification fails, keep the unminified content
             console.warn('Minification failed, using unminified output:', e.message);
           }
         }
       } else {
-        // Single file mode
         const result = esbuild.buildSync({
           entryPoints: filesToProcess,
           bundle: true,
@@ -435,13 +646,10 @@ ipcMain.handle('process-files', async (event, inputPath, outputPath, outputMode,
       }
 
       const compressedSize = finalContent.length;
-
-      // Token estimation
       const CHARS_PER_TOKEN = 4;
       const originalTokens = Math.ceil(originalSize / CHARS_PER_TOKEN);
       const compressedTokens = Math.ceil(compressedSize / CHARS_PER_TOKEN);
       const tokensSaved = originalTokens - compressedTokens;
-
       const COST_PER_1K_TOKENS = 0.03;
       const costSaved = (tokensSaved / 1000) * COST_PER_1K_TOKENS;
 
@@ -455,9 +663,7 @@ ipcMain.handle('process-files', async (event, inputPath, outputPath, outputMode,
         costSaved: costSaved.toFixed(4),
         files: isFolder ? Array.from(combiner.processedFiles).map(f => path.relative(inputPath, f)) : ["Optimized Bundle"]
       };
-
     } else {
-      // --- MODE B: Standard Concatenation (CodeCombiner) ---
       combiner.reset();
       for (const file of filesToProcess) {
         combiner.processFile(file, false);
@@ -465,6 +671,7 @@ ipcMain.handle('process-files', async (event, inputPath, outputPath, outputMode,
 
       finalContent = combiner.getCombinedContent();
       const baseStats = combiner.getStats(finalContent);
+
       stats = {
         ...baseStats,
         filesProcessed: isFolder ? `${filesToProcess.length} files` : baseStats.filesProcessed,
@@ -472,7 +679,6 @@ ipcMain.handle('process-files', async (event, inputPath, outputPath, outputMode,
       };
     }
 
-    // Output Handling (Clipboard or File)
     if (outputMode === 'clipboard') {
       clipboard.writeText(finalContent);
       return { success: true, mode: 'clipboard', ...stats };

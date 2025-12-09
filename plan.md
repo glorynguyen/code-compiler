@@ -1,6 +1,6 @@
 # Code Combiner - Feature Roadmap
 
-## 📋 Current Features (v1.0)
+## 📋 Current Features (v1.1)
 - ✅ Single file and folder processing
 - ✅ Dependency resolution and deduplication
 - ✅ Import path resolution (relative, src/, node_modules)
@@ -9,32 +9,13 @@
 - ✅ Clipboard and file output modes
 - ✅ Basic dependency graph generation
 - ✅ Multi-file selection from folder scan
+- ✅ **Smart Ignore Patterns (glob support, .gitignore integration)**
 
 ---
 
 ## 🚀 Phase 1: Core Improvements (High Priority)
 
-### 1.1 Smart Ignore Patterns
-**Effort:** Medium | **Impact:** High | **Priority:** P0
-
-- [ ] `.gitignore` file integration and parsing
-- [ ] Custom ignore patterns UI with pattern input
-- [ ] Predefined preset filters:
-  - Tests (`**/*.test.ts`, `**/*.spec.ts`)
-  - Configs (`*.config.js`, `.env*`)
-  - Documentation (`*.md`, `docs/`)
-  - Build artifacts (`dist/`, `build/`)
-- [ ] Pattern preview panel showing excluded files
-- [ ] Negation patterns support (`!important.test.ts`)
-
-**Implementation Notes:**
-- Use `minimatch` or `picomatch` for pattern matching
-- Store patterns in project config
-- Show real-time file count changes as patterns are added
-
----
-
-### 1.2 Output Format Options
+### 1.1 Output Format Options
 **Effort:** Medium | **Impact:** High | **Priority:** P0
 
 - [ ] Markdown format with fenced code blocks
@@ -56,7 +37,7 @@
 
 ---
 
-### 1.3 Enhanced Compression Modes
+### 1.2 Enhanced Compression Modes
 **Effort:** Medium | **Impact:** Medium | **Priority:** P1
 
 - [ ] Smart comment preservation (`@preserve`, `@license`, JSDoc)
@@ -75,7 +56,7 @@
 
 ---
 
-### 1.4 Dependency Visualization
+### 1.3 Dependency Visualization
 **Effort:** High | **Impact:** Medium | **Priority:** P1
 
 - [ ] Interactive dependency graph with D3.js or Cytoscape.js
@@ -92,7 +73,7 @@
 
 ---
 
-### 1.5 Multi-Project Support
+### 1.4 Multi-Project Support
 **Effort:** Medium | **Impact:** High | **Priority:** P1
 
 - [ ] Save project configurations as JSON profiles
@@ -328,7 +309,6 @@
 
 | Feature | Effort | Impact | Priority | Phase |
 |---------|--------|--------|----------|-------|
-| Smart Ignore Patterns | Medium | High | P0 | 1 |
 | Output Format Options | Medium | High | P0 | 1 |
 | Enhanced Compression | Medium | Medium | P1 | 1 |
 | Dependency Visualization | High | Medium | P1 | 1 |
@@ -347,7 +327,6 @@
 
 ### Phase 1 (Q1 2025) - Foundation
 Focus: Core improvements that users need most
-- Smart Ignore Patterns
 - Output Format Options
 - Enhanced Compression
 - Dependency Visualization
@@ -387,7 +366,6 @@ Focus: Integrations and collaboration
 - [ ] Create architecture documentation
 
 ### Dependencies to Consider
-- `minimatch` - Pattern matching
 - `d3` or `cytoscape` - Graph visualization
 - `monaco-editor` - Code preview
 - `puppeteer` - PDF export
@@ -404,5 +382,5 @@ Focus: Integrations and collaboration
 ---
 
 **Last Updated:** December 2025  
-**Version:** 1.0  
+**Version:** 1.1  
 **Maintainer:** Vincent Nguyen
