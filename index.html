@@ -345,12 +345,12 @@
       line-height: 1.6;
     }
 
-    .tree-node {
+    .dep-tree .tree-node {
       position: relative;
       padding-left: 24px;
     }
 
-    .tree-node::before {
+    .dep-tree .tree-node::before {
       content: '';
       position: absolute;
       left: 0;
@@ -360,11 +360,11 @@
       background: #ddd;
     }
 
-    .tree-node:last-child::before {
+    .dep-tree .tree-node:last-child::before {
       height: 12px;
     }
 
-    .tree-item {
+    .dep-tree .tree-item {
       position: relative;
       padding: 4px 8px;
       margin: 2px 0;
@@ -422,7 +422,7 @@
       color: #721c24;
     }
 
-    .tree-toggle {
+    .dep-tree .tree-toggle {
       width: 20px;
       height: 20px;
       display: flex;
@@ -435,7 +435,7 @@
       transition: transform 0.2s;
     }
 
-    .tree-toggle.rotated {
+    .dep-tree .tree-toggle.rotated {
       transform: rotate(90deg);
     }
 
@@ -457,14 +457,14 @@
     }
 
 
-    .tree-children {
+    .dep-tree .tree-children {
       margin-left: 22px;
       /* Indentation */
       display: none;
       border-left: 1px solid #eee;
     }
 
-    .tree-children.expanded {
+    .dep-tree .tree-children.expanded {
       display: block;
     }
 
@@ -489,12 +489,16 @@
       color: #61dafb;
     }
 
+    .html-icon {
+      color: #e34c26;
+    }
+
     .css-icon {
       color: #563d7c;
     }
 
 
-    .tree-children.collapsed {
+    .dep-tree .tree-children.collapsed {
       display: none;
     }
 
@@ -550,7 +554,7 @@
 
     <div class="file-section">
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-        <label style="margin-bottom: 0;">📂 <span id="inputLabel">Entry File</span> (.ts, .tsx, .js, .jsx):</label>
+        <label style="margin-bottom: 0;">📂 <span id="inputLabel">Entry File</span> (.ts, .tsx, .js, .jsx, .html, .css):</label>
         <div style="display: flex; gap: 10px;">
           <label class="radio-label" style="font-size: 12px;">
             <input type="radio" name="inputType" value="file" checked onchange="handleInputTypeChange()">
@@ -711,9 +715,13 @@
         selectedFiles = new Set(result.files.map(f => f.path));
         renderFileTree();
         document.getElementById('filePicker').classList.add('show');
+        const statusEl = document.getElementById('gitignoreStatus');
         if (result.hasGitignore) {
-          const filePickerHeader = document.querySelector('.file-picker-header span');
-          filePickerHeader.innerHTML = '📁 Select files to include: <span style="color: #28a745; font-size: 11px; font-weight: normal;">(✓ .gitignore applied)</span>';
+          statusEl.textContent = '(✓ .gitignore applied)';
+          statusEl.style.display = 'inline';
+        } else {
+          statusEl.textContent = '';
+          statusEl.style.display = 'none';
         }
       } else {
         alert('Error scanning folder: ' + result.error);
@@ -850,6 +858,9 @@
       if (filename.endsWith('.tsx')) return { emoji: 'TSX', class: 'ts-icon' };
       if (filename.endsWith('.js')) return { emoji: 'JS', class: 'js-icon' };
       if (filename.endsWith('.jsx')) return { emoji: 'JSX', class: 'jsx-icon' };
+      if (filename.endsWith('.html')) return { emoji: '🌐', class: 'html-icon' };
+      if (filename.endsWith('.css')) return { emoji: '🎨', class: 'css-icon' };
+      
       return { emoji: '📄', class: 'file-icon' };
     }
 
@@ -1126,7 +1137,7 @@
 
     function renderTreeNode(node, isEntry = false) {
       const hasChildren = node.children && node.children.length > 0;
-      const toggleIcon = hasChildren ? '▼' : '•';
+      const toggleIcon = hasChildren ? '▶' : '•';
 
       let itemClass = 'tree-item';
       let statusIcon = '📄';
@@ -1154,7 +1165,7 @@
       `;
 
       if (hasChildren) {
-        html += '<div class="tree-children">';
+        html += '<div class="tree-children collapsed">';
         for (const child of node.children) {
           html += renderTreeNode(child);
         }
@@ -1166,7 +1177,8 @@
     }
 
     function toggleNode(element) {
-      const children = element.nextElementSibling;
+      const treeNode = element.parentElement;
+      const children = treeNode.querySelector('.tree-children');
       if (children && children.classList.contains('tree-children')) {
         children.classList.toggle('collapsed');
         const toggle = element.querySelector('.tree-toggle');

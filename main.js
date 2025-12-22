@@ -4,6 +4,16 @@ const path = require('path');
 const { app, BrowserWindow, ipcMain, dialog, clipboard } = require('electron');
 const esbuild = require('esbuild');
 
+const CONFIG = {
+  SUPPORTED_EXTENSIONS: ['.ts', '.tsx', '.js', '.jsx', '.html', '.css'],
+  getExtensionsDisplay() {
+    return this.SUPPORTED_EXTENSIONS.map(ext => ext.replace('.', '')).join(', ');
+  },
+  getDialogExtensions() {
+    return this.SUPPORTED_EXTENSIONS.map(ext => ext.replace('.', ''));
+  }
+};
+
 class IgnorePatternManager {
   constructor() {
     this.ig = ignore();
@@ -186,7 +196,7 @@ class IgnorePatternManager {
   }
 }
 
-function findFilesInDirectory(dirPath, extensions = ['.ts', '.tsx', '.js', '.jsx'], ignoreManager = null, projectRoot = null) {
+function findFilesInDirectory(dirPath, extensions = CONFIG.SUPPORTED_EXTENSIONS, ignoreManager = null, projectRoot = null) {
   const files = [];
 
   function walkDir(currentPath) {
@@ -252,7 +262,7 @@ class CodeCombiner {
   }
 
   resolveImportPath(basePath, importPath) {
-    const extensions = ['.ts', '.tsx', '.js', '.jsx', '.json'];
+    const extensions = CONFIG.SUPPORTED_EXTENSIONS;
     let fullPath;
 
     if (importPath.startsWith('./') || importPath.startsWith('../')) {
@@ -460,7 +470,7 @@ ipcMain.handle('select-input-file', async () => {
   const result = await dialog.showOpenDialog(mainWindow, {
     properties: ['openFile'],
     filters: [
-      { name: 'TypeScript/JavaScript', extensions: ['ts', 'tsx', 'js', 'jsx'] },
+      { name: 'TypeScript/JavaScript', extensions: CONFIG.getDialogExtensions() },
       { name: 'All Files', extensions: ['*'] }
     ]
   });
@@ -574,7 +584,7 @@ ipcMain.handle('scan-folder', async (event, folderPath) => {
     const projectRoot = folderPath;
     combiner.ignoreManager.clear();
     combiner.ignoreManager.loadGitignore(projectRoot);
-    const files = findFilesInDirectory(folderPath, ['.ts', '.tsx', '.js', '.jsx'], combiner.ignoreManager, projectRoot);
+    const files = findFilesInDirectory(folderPath, CONFIG.SUPPORTED_EXTENSIONS, combiner.ignoreManager, projectRoot);
     const relativeFiles = files.map(f => ({
       path: f,
       relativePath: path.relative(folderPath, f),
@@ -597,7 +607,7 @@ ipcMain.handle('process-files', async (event, inputPath, outputPath, outputMode,
         filesToProcess = selectedFiles;
       } else {
         const projectRoot = inputPath;
-        filesToProcess = findFilesInDirectory(inputPath, ['.ts', '.tsx', '.js', '.jsx'], combiner.ignoreManager, projectRoot);
+        filesToProcess = findFilesInDirectory(inputPath, CONFIG.SUPPORTED_EXTENSIONS, combiner.ignoreManager, projectRoot);
       }
 
       if (filesToProcess.length === 0) {
@@ -647,7 +657,7 @@ ipcMain.handle('process-files', async (event, inputPath, outputPath, outputMode,
 
       let bundledOutputs = [];
       const loaderConfig = {
-        '.css': 'empty',
+        '.css': 'css',
         '.scss': 'empty',
         '.sass': 'empty',
         '.less': 'empty',
@@ -744,4 +754,11 @@ ipcMain.handle('process-files', async (event, inputPath, outputPath, outputMode,
   } catch (error) {
     return { success: false, error: error.message };
   }
+});
+
+ipcMain.handle('get-supported-extensions', async () => {
+  return {
+    extensions: CONFIG.SUPPORTED_EXTENSIONS,
+    display: CONFIG.getExtensionsDisplay()
+  };
 });
