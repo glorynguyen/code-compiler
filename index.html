@@ -422,7 +422,7 @@
       color: #721c24;
     }
 
-    .dep-tree .tree-toggle {
+    .tree-toggle {
       width: 20px;
       height: 20px;
       display: flex;
@@ -435,7 +435,7 @@
       transition: transform 0.2s;
     }
 
-    .dep-tree .tree-toggle.rotated {
+    .tree-toggle.rotated {
       transform: rotate(90deg);
     }
 
@@ -457,16 +457,15 @@
     }
 
 
-    .dep-tree .tree-children {
+    .tree-children {
       margin-left: 22px;
-      /* Indentation */
-      display: none;
-      border-left: 1px solid #eee;
-    }
-
-    .dep-tree .tree-children.expanded {
       display: block;
     }
+
+    .tree-children.collapsed {
+      display: none;
+    }
+
 
     .folder-icon {
       color: #F8D775;
@@ -495,11 +494,6 @@
 
     .css-icon {
       color: #563d7c;
-    }
-
-
-    .dep-tree .tree-children.collapsed {
-      display: none;
     }
 
     .dep-stats {
@@ -554,7 +548,8 @@
 
     <div class="file-section">
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-        <label style="margin-bottom: 0;">📂 <span id="inputLabel">Entry File</span> (.ts, .tsx, .js, .jsx, .html, .css):</label>
+        <label style="margin-bottom: 0;">📂 <span id="inputLabel">Entry File</span> (.ts, .tsx, .js, .jsx, .html,
+          .css):</label>
         <div style="display: flex; gap: 10px;">
           <label class="radio-label" style="font-size: 12px;">
             <input type="radio" name="inputType" value="file" checked onchange="handleInputTypeChange()">
@@ -860,21 +855,21 @@
       if (filename.endsWith('.jsx')) return { emoji: 'JSX', class: 'jsx-icon' };
       if (filename.endsWith('.html')) return { emoji: '🌐', class: 'html-icon' };
       if (filename.endsWith('.css')) return { emoji: '🎨', class: 'css-icon' };
-      
+
       return { emoji: '📄', class: 'file-icon' };
     }
 
     function toggleTreeFolder(toggleBtn) {
       const childrenContainer = toggleBtn.parentElement.nextElementSibling;
 
-      if (childrenContainer.classList.contains('expanded')) {
-        childrenContainer.classList.remove('expanded');
+      if (childrenContainer.classList.contains('collapsed')) {
+        childrenContainer.classList.remove('collapsed');
+        toggleBtn.textContent = '▼';
+        toggleBtn.classList.add('rotated');
+      } else {
+        childrenContainer.classList.add('collapsed');
         toggleBtn.textContent = '▶';
         toggleBtn.classList.remove('rotated');
-      } else {
-        childrenContainer.classList.add('expanded');
-        toggleBtn.textContent = '▼'; // Visual change often handled by rotation, but char change is safe
-        toggleBtn.classList.add('rotated');
       }
     }
 
@@ -974,28 +969,28 @@
 
     function selectAllFiles() {
       availableFiles.forEach(f => selectedFiles.add(f.path));
-      
+
       // Update UI
       const checkboxes = document.querySelectorAll('.file-picker input[type="checkbox"]');
       checkboxes.forEach(cb => {
         cb.checked = true;
         cb.indeterminate = false;
       });
-      
+
       updateFileCount();
       checkCanProcess();
     }
 
     function deselectAllFiles() {
       selectedFiles.clear();
-      
+
       // Update UI
       const checkboxes = document.querySelectorAll('.file-picker input[type="checkbox"]');
       checkboxes.forEach(cb => {
         cb.checked = false;
         cb.indeterminate = false;
       });
-      
+
       updateFileCount();
       checkCanProcess();
     }
