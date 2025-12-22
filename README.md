@@ -1,134 +1,133 @@
 # 🚀 Code Combiner
 
-A sleek Electron app that combines and bundles your TypeScript/JavaScript files into a single optimized output — perfect for feeding code into AI/LLM tools like ChatGPT, Claude, or Gemini.
+**Code Combiner** is a lightweight Electron application designed to intelligently bundle your TypeScript and JavaScript source files into a single, optimized output. It is purpose-built for **sharing code with AI/LLM tools** like ChatGPT, Claude, and Gemini.
 
-![Code Combiner Screenshot](https://img.shields.io/badge/Platform-macOS-blue?style=flat-square) ![Electron](https://img.shields.io/badge/Electron-28.0-47848F?style=flat-square&logo=electron) ![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)
+Instead of manually copying dozens of files, Code Combiner creates a clean, deduplicated, and readable code context with a single click.
+
+![Platform](https://img.shields.io/badge/Platform-macOS-blue?style=flat-square)
+![Electron](https://img.shields.io/badge/Electron-28.0-47848F?style=flat-square&logo=electron)
+![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)
+
+---
 
 ## ✨ Features
 
-- **📂 Smart Import Resolution** — Automatically follows and resolves `import` statements (relative, absolute, and `src/` paths)
-- **🌳 Tree Shaking** — Powered by [esbuild](https://esbuild.github.io/) to eliminate unused code
-- **🗜️ Minification** — Optional minify to squeeze out maximum compression
-- **💰 Token Savings Calculator** — See how many tokens and dollars you're saving (based on GPT-4 pricing)
-- **📊 Dependency Graph Visualization** — Interactive tree view showing how your files are connected via imports
-- **📁 Folder Selection** — Process all JS/TS files in a folder with file-by-file selection
-- **📋 Clipboard Support** — Copy directly to clipboard for instant pasting into AI chats
-- **💾 File Export** — Save combined code to a file for sharing or archiving
-- **🎨 Beautiful UI** — Modern gradient design with smooth animations
+- **📂 Smart Import Resolution**  
+  Automatically follows `import` statements (relative, absolute, and `src/` paths).
+- **🌳 Tree Shaking**  
+  Powered by [esbuild](https://esbuild.github.io/) to remove unused code and dead exports.
+- **🗜️ Optional Minification**  
+  Compress output further to minimize token usage without losing logic.
+- **💰 Token Savings Calculator**  
+  Estimates token counts and cost savings based on the GPT-4 pricing model.
+- **📊 Dependency Graph**  
+  An interactive visualization of your file relationships, depth, and potential issues.
+- **📁 Folder Mode**  
+  Process entire directories with granular file selection and "ignore" rules.
+- **📋 Instant Export**  
+  One-click "Copy to Clipboard" or "Save to File" functionality.
+
+---
 
 ## 🖥️ Installation
 
 ### Prerequisites
-
-- [Node.js](https://nodejs.org/) (v18 or higher recommended)
+- [Node.js](https://nodejs.org/) (v18+ recommended)
 - [Yarn](https://yarnpkg.com/) (v4+)
 
 ### Setup
-
 ```bash
 # Clone the repository
-git clone git@github.com:glorynguyen/code-compiler.git
-cd code-compiler
+git clone https://github.com/glorynguyen/code-combiner.git
+cd code-combiner
 
 # Install dependencies
 yarn install
 
-# Run the app
+# Start the application in development mode
 yarn start
 ```
 
+---
+
 ## 🎯 Usage
 
-1. **Select Entry File** — Choose your main `.ts`, `.tsx`, `.js`, or `.jsx` file
-2. **Choose Output Mode**:
-   - 💾 **Save to File** — Export to a text file
-   - 📋 **Copy to Clipboard** — Instant copy for pasting
-3. **Optional Settings**:
-   - ⚡ **Bundle Mode** — Enable esbuild bundling with tree-shaking
-   - 🗜️ **Minify Output** — Compress the output further
-4. **Click Process** — Done! See your token savings instantly
+### 1. Select Entry File
+Choose a `.ts`, `.tsx`, `.js`, or `.jsx` file as your starting point. Code Combiner will crawl the import tree from this file.
 
-## 📁 Folder Mode
+### 2. Configure Settings
+*   **⚡ Enable Bundle Mode:** Uses `esbuild` for tree-shaking and dependency resolution.
+*   **🗜️ Enable Minification:** Strips whitespace and comments to save tokens.
 
-Process multiple files at once with granular control:
+### 3. Folder Mode
+If you prefer not to use an entry point, select **Folder Mode**:
+1. Choose a directory.
+2. Toggle files on/off using the interactive file tree.
+3. Common directories like `node_modules`, `dist`, and `.git` are excluded automatically.
 
-1. Select **Folder** in the input type toggle
-2. Click **Browse** and select a folder
-3. A **file picker** appears showing all `.ts/.tsx/.js/.jsx` files found
-4. **Check/uncheck** individual files to include/exclude
-5. Use **Select All** / **Deselect All** for quick selection
-6. Process only the files you need!
+### 4. Process & Export
+Click **Process** to generate the output. You can then:
+*   **💾 Save to File:** Export the bundle as a `.txt` or `.js` file.
+*   **📋 Copy to Clipboard:** Instantly paste the result into your AI prompt.
 
-### Smart Deduplication
+---
 
-When processing multiple files in folder mode, the app automatically:
+## 📊 Dependency Graph Legend
 
-- **Follows imports** — Resolves and includes all dependencies from selected files
-- **Deduplicates shared modules** — If multiple files import the same dependency, it's included only once
-- **Shows accurate stats** — Displays the actual count of deduplicated files processed
+Visualize your code structure before exporting to identify bloat or circular logic.
 
-> **Note:** Folder mode skips `node_modules`, `dist`, `.git`, and other build directories automatically.
+| Icon | Meaning | Description |
+| :--- | :--- | :--- |
+| 🚀 | **Entry** | The starting point of your bundle. |
+| 📄 | **File** | A standard imported dependency. |
+| 🔄 | **Circular** | A circular dependency was detected. |
+| ❌ | **Missing** | A file was referenced but could not be resolved. |
 
-## � Dependency Graph
+---
 
-Visualize how your files are connected! After selecting an entry file, click **"Show Dependency Graph"** to open an interactive modal showing:
+## 💡 Token Savings
+When **Bundle Mode** is enabled, the app calculates:
 
-| Element | Description |
-|---------|-------------|
-| 🚀 **Entry File** | Your main entry point (highlighted in purple) |
-| 📄 **Dependencies** | Files imported by your code |
-| 🔄 **Circular** | Circular import detected (yellow warning) |
-| ❌ **Missing** | File not found (red error) |
+*   **Original Tokens:** Estimated tokens if you copied every file manually.
+*   **Optimized Tokens:** Tokens after tree-shaking and bundling.
+*   **Cost Saved ($):** Based on GPT-4 input pricing (~$0.03 / 1K tokens).
 
-**Stats displayed:**
-- **Total Files** — Number of files in the dependency tree
-- **Max Depth** — Deepest level of nested imports
-- **Direct Dependencies** — Files directly imported by entry file
+*Note: Token estimation assumes ~4 characters per token.*
 
-Click on any node with children to **collapse/expand** that branch.
+---
 
-## �💡 Token Savings
+## 🏗️ Build for Production
 
-When using Bundle mode, the app calculates:
-
-| Metric | Description |
-|--------|-------------|
-| **Original Tokens** | Estimated tokens before compression (~4 chars/token) |
-| **Compressed Tokens** | Tokens after bundling & tree-shaking |
-| **Tokens Saved** | Difference = cost savings |
-| **$ Saved** | Based on GPT-4 input pricing (~$0.03/1K tokens) |
-
-## 🏗️ Building for Production
+To package the application for macOS:
 
 ```bash
-# Build macOS app (DMG + ZIP)
 yarn build
 ```
+The output (DMG and ZIP) will be located in the `dist/` folder.
 
-The built app will be in the `dist/` folder.
+---
 
 ## 📁 Project Structure
 
+```text
+code-combiner/
+├── main.js        # Electron main process (Core Logic)
+├── index.html     # UI (HTML + CSS + JS)
+├── package.json   # Dependencies & build config
+└── dist/          # Production builds
 ```
-code-compiler/
-├── main.js          # Electron main process + CodeCombiner logic
-├── index.html       # UI with embedded styles and scripts
-├── package.json     # Dependencies and build config
-└── dist/            # Built application output
-```
+
+---
 
 ## 🛠️ Tech Stack
 
-- **[Electron](https://www.electronjs.org/)** — Cross-platform desktop app
-- **[esbuild](https://esbuild.github.io/)** — Ultra-fast bundler with tree-shaking
-- **Vanilla JS/CSS** — No frameworks, just clean code
+*   **Framework:** [Electron](https://www.electronjs.org/)
+*   **Bundler:** [esbuild](https://esbuild.github.io/)
+*   **UI:** Vanilla JavaScript & CSS (Modern & Dependency-free)
 
 ## 📝 License
 
 MIT © [Vincent Nguyen](https://github.com/glorynguyen)
 
 ---
-
-<p align="center">
-  <strong>Made with 💜 for developers who love AI tools</strong>
-</p>
+<p align="center"> <strong>Built for developers who use AI seriously.</strong> </p>
