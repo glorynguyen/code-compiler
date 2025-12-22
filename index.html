@@ -458,7 +458,8 @@
 
 
     .tree-children {
-      margin-left: 22px; /* Indentation */
+      margin-left: 22px;
+      /* Indentation */
       display: none;
       border-left: 1px solid #eee;
     }
@@ -467,12 +468,30 @@
       display: block;
     }
 
-    .folder-icon { color: #F8D775; text-shadow: 0 1px 1px rgba(0,0,0,0.1); }
-    .file-icon { color: #a0a0a0; }
-    .ts-icon { color: #3178c6; }
-    .js-icon { color: #f7df1e; }
-    .jsx-icon { color: #61dafb; }
-    .css-icon { color: #563d7c; }
+    .folder-icon {
+      color: #F8D775;
+      text-shadow: 0 1px 1px rgba(0, 0, 0, 0.1);
+    }
+
+    .file-icon {
+      color: #a0a0a0;
+    }
+
+    .ts-icon {
+      color: #3178c6;
+    }
+
+    .js-icon {
+      color: #f7df1e;
+    }
+
+    .jsx-icon {
+      color: #61dafb;
+    }
+
+    .css-icon {
+      color: #563d7c;
+    }
 
 
     .tree-children.collapsed {
@@ -551,7 +570,11 @@
       <!-- File Picker for Folder Mode -->
       <div class="file-picker" id="filePicker">
         <div class="file-picker-header">
-          <span>📁 Select files to include:</span>
+          <div>
+            <span id="filePickerTitle">📁 Select files to include:</span>
+            <span id="gitignoreStatus"
+              style="color: #28a745; font-size: 11px; font-weight: normal; margin-left: 8px;"></span>
+          </div>
           <div class="file-picker-actions">
             <button onclick="selectAllFiles()">Select All</button>
             <button onclick="deselectAllFiles()">Deselect All</button>
@@ -688,6 +711,10 @@
         selectedFiles = new Set(result.files.map(f => f.path));
         renderFileTree();
         document.getElementById('filePicker').classList.add('show');
+        if (result.hasGitignore) {
+          const filePickerHeader = document.querySelector('.file-picker-header span');
+          filePickerHeader.innerHTML = '📁 Select files to include: <span style="color: #28a745; font-size: 11px; font-weight: normal;">(✓ .gitignore applied)</span>';
+        }
       } else {
         alert('Error scanning folder: ' + result.error);
       }

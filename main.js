@@ -1,14 +1,13 @@
 const fs = require('fs');
+const ignore = require('ignore');
 const path = require('path');
 const { app, BrowserWindow, ipcMain, dialog, clipboard } = require('electron');
 const esbuild = require('esbuild');
 
-const minimatch = require('minimatch');
-
 class IgnorePatternManager {
   constructor() {
-    this.patterns = [];
-    this.negationPatterns = [];
+    this.ig = ignore();
+    this.hasPatterns = false;
   }
 
   parseGitignore(gitignorePath) {
@@ -33,42 +32,95 @@ class IgnorePatternManager {
 
   loadGitignore(projectRoot) {
     const gitignorePath = path.join(projectRoot, '.gitignore');
-    const gitignorePatterns = this.parseGitignore(gitignorePath);
-    this.addPatterns(gitignorePatterns);
+    
+    if (!fs.existsSync(gitignorePath)) {
+      return;
+    }
+
+    const content = fs.readFileSync(gitignorePath, 'utf-8');
+    this.ig.add(content);
+    this.hasPatterns = true;
   }
 
   addPatterns(patterns) {
-    for (const pattern of patterns) {
-      if (pattern.startsWith('!')) {
-        this.negationPatterns.push(pattern.substring(1));
-      } else {
-        this.patterns.push(pattern);
-      }
+    if (Array.isArray(patterns) && patterns.length > 0) {
+      this.ig.add(patterns);
+      this.hasPatterns = true;
     }
   }
 
-  clear() {
-    this.patterns = [];
-    this.negationPatterns = [];
+  addPreset(presetName) {
+    const presets = {
+      tests: [
+        '**/*.test.ts',
+        '**/*.test.tsx',
+        '**/*.test.js',
+        '**/*.test.jsx',
+        '**/*.spec.ts',
+        '**/*.spec.tsx',
+        '**/*.spec.js',
+        '**/*.spec.jsx',
+        '**/__tests__/',
+        '**/test/',
+        '**/tests/',
+        '**/__tests__/**',
+        '**/test/**',
+        '**/tests/**',
+      ],
+      configs: [
+        '*.config.js',
+        '*.config.ts',
+        '.env*',
+        '.eslintrc*',
+        '.prettierrc*',
+        'tsconfig.json',
+        'webpack.config.*',
+      ],
+      buildArtifacts: [
+        'dist/',
+        'build/',
+        'out/',
+        '.next/',
+        'coverage/',
+        '*.log',
+      ],
+      dependencies: [
+        'node_modules/',
+        'vendor/',
+        '.pnp.*',
+        'package-lock.json',
+        'yarn.lock',
+        'pnpm-lock.yaml',
+      ],
+    };
+
+    if (presets[presetName]) {
+      this.addPatterns(presets[presetName]);
+    }
   }
 
   shouldIgnore(filePath, projectRoot) {
-    const relativePath = path.relative(projectRoot, filePath);
-    const normalizedPath = relativePath.split(path.sep).join('/');
-
-    for (const pattern of this.negationPatterns) {
-      if (minimatch(normalizedPath, pattern, { dot: true, matchBase: true })) {
-        return false;
-      }
+    if (!this.hasPatterns) {
+      return false;
     }
 
-    for (const pattern of this.patterns) {
-      if (minimatch(normalizedPath, pattern, { dot: true, matchBase: true })) {
-        return true;
-      }
-    }
+    // Convert to relative path with forward slashes
+    const relativePath = path
+      .relative(projectRoot, filePath)
+      .split(path.sep)
+      .join('/');
 
-    return false;
+    // Check if ignored
+    return this.ig.ignores(relativePath);
+  }
+
+  filterFiles(files, projectRoot) {
+    return files.filter(file => !this.shouldIgnore(file, projectRoot));
+  }
+
+  clear() {
+    this.ig = ignore();
+    this.hasPatterns = false;
   }
 
   static getPresets() {
@@ -366,7 +418,7 @@ class CodeCombiner {
     for (const importPath of imports) {
       const resolvedPath = this.resolveImportPath(normalizedPath, importPath);
       if (resolvedPath) {
-        children.push(this.buildDependencyGraph(resolvedPath, new Set(visited)));
+        children.push(this.buildDependencyGraph(resolvedPath, visited));
       }
     }
 
@@ -520,13 +572,15 @@ ipcMain.handle('analyze-dependencies', async (event, inputPath) => {
 ipcMain.handle('scan-folder', async (event, folderPath) => {
   try {
     const projectRoot = folderPath;
+    combiner.ignoreManager.clear();
+    combiner.ignoreManager.loadGitignore(projectRoot);
     const files = findFilesInDirectory(folderPath, ['.ts', '.tsx', '.js', '.jsx'], combiner.ignoreManager, projectRoot);
     const relativeFiles = files.map(f => ({
       path: f,
       relativePath: path.relative(folderPath, f),
       name: path.basename(f)
     }));
-    return { success: true, files: relativeFiles };
+    return { success: true, files: relativeFiles, hasGitignore: combiner.ignoreManager.hasPatterns };
   } catch (error) {
     return { success: false, error: error.message };
   }
