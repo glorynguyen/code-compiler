@@ -5,7 +5,25 @@ const { app, BrowserWindow, ipcMain, dialog, clipboard } = require('electron');
 const esbuild = require('esbuild');
 
 const CONFIG = {
-  SUPPORTED_EXTENSIONS: ['.ts', '.tsx', '.js', '.jsx', '.html', '.css'],
+  EXTENSION_META: {
+    '.ts': { icon: 'TS', class: 'ts-icon', loader: 'ts' },
+    '.tsx': { icon: 'TSX', class: 'ts-icon', loader: 'tsx' },
+    '.js': { icon: 'JS', class: 'js-icon', loader: 'js' },
+    '.jsx': { icon: 'JSX', class: 'jsx-icon', loader: 'jsx' },
+    '.html': { icon: '🌐', class: 'html-icon', loader: 'text' },
+    '.css': { icon: '🎨', class: 'css-icon', loader: 'css' },
+    '.scss': { icon: '🎨', class: 'css-icon', loader: 'empty' },
+  },
+  get SUPPORTED_EXTENSIONS() {
+    return Object.keys(this.EXTENSION_META);
+  },
+  getLoaderConfig() {
+    const config = {};
+    for (const [ext, meta] of Object.entries(this.EXTENSION_META)) {
+      config[ext] = meta.loader;
+    }
+    return config;
+  },
   getExtensionsDisplay() {
     return this.SUPPORTED_EXTENSIONS.map(ext => ext.replace('.', '')).join(', ');
   },
@@ -454,6 +472,7 @@ function createWindow() {
   });
 
   mainWindow.loadFile('index.html');
+  // mainWindow.webContents.openDevTools();
 }
 
 app.whenReady().then(createWindow);
@@ -656,22 +675,7 @@ ipcMain.handle('process-files', async (event, inputPath, outputPath, outputMode,
       combiner.reset();
 
       let bundledOutputs = [];
-      const loaderConfig = {
-        '.css': 'css',
-        '.scss': 'empty',
-        '.sass': 'empty',
-        '.less': 'empty',
-        '.png': 'empty',
-        '.jpg': 'empty',
-        '.jpeg': 'empty',
-        '.gif': 'empty',
-        '.svg': 'empty',
-        '.ico': 'empty',
-        '.woff': 'empty',
-        '.woff2': 'empty',
-        '.ttf': 'empty',
-        '.eot': 'empty',
-      };
+      const loaderConfig = CONFIG.getLoaderConfig();
 
       if (isFolder) {
         combiner.reset();
@@ -754,6 +758,10 @@ ipcMain.handle('process-files', async (event, inputPath, outputPath, outputMode,
   } catch (error) {
     return { success: false, error: error.message };
   }
+});
+
+ipcMain.handle('get-extension-metadata', async () => {
+  return CONFIG.EXTENSION_META;
 });
 
 ipcMain.handle('get-supported-extensions', async () => {

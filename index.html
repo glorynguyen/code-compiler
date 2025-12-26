@@ -849,12 +849,14 @@
     }
 
     function getFileIcon(filename) {
-      if (filename.endsWith('.ts')) return { emoji: 'TS', class: 'ts-icon' };
-      if (filename.endsWith('.tsx')) return { emoji: 'TSX', class: 'ts-icon' };
-      if (filename.endsWith('.js')) return { emoji: 'JS', class: 'js-icon' };
-      if (filename.endsWith('.jsx')) return { emoji: 'JSX', class: 'jsx-icon' };
-      if (filename.endsWith('.html')) return { emoji: '🌐', class: 'html-icon' };
-      if (filename.endsWith('.css')) return { emoji: '🎨', class: 'css-icon' };
+      const ext = filename.substring(filename.lastIndexOf('.')).toLowerCase();
+
+      if (EXTENSION_META[ext]) {
+        return {
+          emoji: EXTENSION_META[ext].icon,
+          class: EXTENSION_META[ext].class
+        };
+      }
 
       return { emoji: '📄', class: 'file-icon' };
     }
@@ -1244,6 +1246,22 @@
 
       resultDiv.style.display = 'block';
     }
+    let EXTENSION_META = {};
+
+    async function initializeApp() {
+      EXTENSION_META = await ipcRenderer.invoke('get-extension-metadata');
+
+      const extensionList = Object.keys(EXTENSION_META)
+        .map(ext => ext.replace('.', ''))
+        .join(', ');
+
+      const labelElement = document.querySelector('label[for="inputPath"]')
+        || document.getElementById('inputLabel').parentElement;
+
+      labelElement.innerHTML = `<span id="inputLabel">Entry File</span> (${extensionList})`
+    }
+
+    initializeApp();
   </script>
 </body>
 
