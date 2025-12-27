@@ -3,6 +3,130 @@ const ignore = require('ignore');
 const path = require('path');
 const { app, BrowserWindow, ipcMain, dialog, clipboard } = require('electron');
 const esbuild = require('esbuild');
+const CHARS_PER_TOKEN = 4;
+const COST_PER_1K_TOKENS = 0.03;
+
+function collectFilesToProcess(isFolder, inputPath, selectedFiles, ignoreManager, projectRoot) {
+  if (isFolder) {
+    if (selectedFiles && selectedFiles.length > 0) {
+      return selectedFiles;
+    } else {
+      return findFilesInDirectory(inputPath, CONFIG.SUPPORTED_EXTENSIONS, ignoreManager, projectRoot);
+    }
+  } else {
+    return [inputPath];
+  }
+}
+
+function getCombinedContent(filesToProcess, compress) {
+  combiner.reset();
+  for (const file of filesToProcess) {
+    combiner.processFile(file, compress);
+  }
+  return combiner.getCombinedContent();
+}
+
+function minifyContent(content) {
+  try {
+    const result = esbuild.transformSync(content, {
+      loader: 'js',
+      minify: true,
+      target: 'esnext',
+    });
+    return result.code;
+  } catch (e) {
+    console.warn('Minification failed, using unminified output:', e.message);
+    return content;
+  }
+}
+
+function buildWithEsbuild(filesToProcess, shouldMinify, projectRoot, externalDeps) {
+  const tsconfigPath = path.join(projectRoot, 'tsconfig.json');
+  const hasTsConfig = fs.existsSync(tsconfigPath);
+  const loaderConfig = CONFIG.getLoaderConfig();
+
+  const result = esbuild.buildSync({
+    entryPoints: filesToProcess,
+    bundle: true,
+    treeShaking: true,
+    minify: shouldMinify,
+    format: 'esm',
+    target: 'esnext',
+    platform: 'node',
+    tsconfig: hasTsConfig ? tsconfigPath : undefined,
+    write: false,
+    external: externalDeps,
+    loader: loaderConfig,
+  });
+
+  return result.outputFiles[0].text;
+}
+
+function calculateTokenStats(content) {
+  const size = content.length;
+  const tokens = Math.ceil(size / CHARS_PER_TOKEN);
+  const cost = (tokens / 1000) * COST_PER_1K_TOKENS;
+
+  return {
+    size,
+    tokens,
+    cost: cost.toFixed(4),
+    sizeKB: (size / 1024).toFixed(2)
+  };
+}
+
+function parseProjectDependencies(projectRoot) {
+  const pkgPath = path.join(projectRoot, 'package.json');
+  const externalDeps = [];
+
+  if (fs.existsSync(pkgPath)) {
+    try {
+      const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
+      externalDeps.push(
+        ...Object.keys(pkg.dependencies || {}),
+        ...Object.keys(pkg.devDependencies || {}),
+        ...Object.keys(pkg.peerDependencies || {})
+      );
+    } catch (e) {
+      console.warn('Could not parse package.json for externals:', e);
+      throw e;
+    }
+  }
+
+  return externalDeps;
+}
+
+function generateStats(processedFiles, content, originalContent = null) {
+  const tokenStats = calculateTokenStats(content);
+  const baseStats = {
+    filesProcessed: processedFiles.size,
+    outputSize: tokenStats.sizeKB,
+    totalTokens: tokenStats.tokens,
+    estimatedCost: tokenStats.cost,
+    files: Array.from(processedFiles)
+  };
+
+  if (originalContent) {
+    const originalTokenStats = calculateTokenStats(originalContent);
+    baseStats.originalSize = originalTokenStats.sizeKB;
+    baseStats.originalTokens = originalTokenStats.tokens;
+    baseStats.tokensSaved = originalTokenStats.tokens - tokenStats.tokens;
+    baseStats.costSaved = (originalTokenStats.cost - tokenStats.cost).toFixed(4);
+  }
+
+  return baseStats;
+}
+
+function handleOutput(content, outputMode, outputPath, stats) {
+  if (outputMode === 'clipboard') {
+    clipboard.writeText(content);
+    return { success: true, mode: 'clipboard', ...stats };
+  } else {
+    if (!outputPath) throw new Error("Output path not specified");
+    fs.writeFileSync(outputPath, content, 'utf-8');
+    return { success: true, mode: 'file', ...stats };
+  }
+}
 
 const CONFIG = {
   EXTENSION_META: {
@@ -60,7 +184,7 @@ class IgnorePatternManager {
 
   loadGitignore(projectRoot) {
     const gitignorePath = path.join(projectRoot, '.gitignore');
-    
+
     if (!fs.existsSync(gitignorePath)) {
       return;
     }
@@ -216,8 +340,11 @@ class IgnorePatternManager {
 
 function findFilesInDirectory(dirPath, extensions = CONFIG.SUPPORTED_EXTENSIONS, ignoreManager = null, projectRoot = null) {
   const files = [];
+  const MAX_FILES = 10000;
+  const MAX_DEPTH = 20;
 
-  function walkDir(currentPath) {
+  function walkDir(currentPath, depth = 0) {
+    if (depth > MAX_DEPTH || files.length > MAX_FILES) return;
     const entries = fs.readdirSync(currentPath, { withFileTypes: true });
 
     for (const entry of entries) {
@@ -229,7 +356,7 @@ function findFilesInDirectory(dirPath, extensions = CONFIG.SUPPORTED_EXTENSIONS,
         }
 
         if (!['node_modules', 'dist', '.git', '.next', 'build', 'coverage'].includes(entry.name)) {
-          walkDir(fullPath);
+          walkDir(fullPath, depth + 1);
         }
       } else if (entry.isFile()) {
         const ext = path.extname(entry.name).toLowerCase();
@@ -245,7 +372,7 @@ function findFilesInDirectory(dirPath, extensions = CONFIG.SUPPORTED_EXTENSIONS,
     }
   }
 
-  walkDir(dirPath);
+  walkDir(dirPath, 0);
   return files;
 }
 
@@ -323,6 +450,7 @@ class CodeCombiner {
           Object.keys(allDeps).forEach(dep => this.projectDependencies.add(dep));
         } catch (e) {
           console.warn('Could not parse package.json for dependency detection');
+          throw e;
         }
         return currentDir;
       }
@@ -343,6 +471,7 @@ class CodeCombiner {
   }
 
   minifyContent(content) {
+    content = content.replace(/\/\*!(.*?)\*\//gs, '/*!$1*/');
     content = content.replace(/\/\*[\s\S]*?\*\//g, '');
     content = content.replace(/\/\/[^\n]*$/gm, "");
     content = content.replace(/\s+/g, ' ');
@@ -591,7 +720,6 @@ ipcMain.handle('analyze-dependencies', async (event, inputPath) => {
   try {
     combiner.reset();
     const graph = combiner.buildDependencyGraph(inputPath);
-    combiner.reset();
     return { success: true, graph };
   } catch (error) {
     return { success: false, error: error.message };
@@ -617,144 +745,72 @@ ipcMain.handle('scan-folder', async (event, folderPath) => {
 
 ipcMain.handle('process-files', async (event, inputPath, outputPath, outputMode, shouldCompress, shouldMinify, isFolder, selectedFiles) => {
   try {
+    const projectRoot = isFolder ? inputPath : path.dirname(inputPath);
+    combiner.reset();
+    combiner.ignoreManager.loadGitignore(projectRoot);
+
+    const filesToProcess = collectFilesToProcess(
+      isFolder,
+      inputPath,
+      selectedFiles,
+      combiner.ignoreManager,
+      projectRoot
+    );
+
+    if (filesToProcess.length === 0) {
+      throw new Error('No files selected or found in the folder');
+    }
+    const detectedRoot = combiner.detectRoot(filesToProcess[0]);
+    const externalDeps = parseProjectDependencies(detectedRoot);
+    externalDeps.push('electron', 'fs', 'path');
+    externalDeps.push('*.css', '*.scss', '*.sass', '*.less');
+    externalDeps.push('*.png', '*.jpg', '*.jpeg', '*.gif', '*.svg', '*.ico');
+    externalDeps.push('*.woff', '*.woff2', '*.ttf', '*.eot');
+
     let finalContent = '';
     let stats = {};
-    let filesToProcess = [];
-
-    if (isFolder) {
-      if (selectedFiles && selectedFiles.length > 0) {
-        filesToProcess = selectedFiles;
-      } else {
-        const projectRoot = inputPath;
-        filesToProcess = findFilesInDirectory(inputPath, CONFIG.SUPPORTED_EXTENSIONS, combiner.ignoreManager, projectRoot);
-      }
-
-      if (filesToProcess.length === 0) {
-        throw new Error('No files selected or found in the folder');
-      }
-    } else {
-      filesToProcess = [inputPath];
-    }
+    let originalContent = '';
 
     if (shouldCompress) {
-      const projectRoot = combiner.detectRoot(filesToProcess[0]);
-      const tsconfigPath = path.join(projectRoot, 'tsconfig.json');
-      const pkgPath = path.join(projectRoot, 'package.json');
-      const hasTsConfig = fs.existsSync(tsconfigPath);
-
-      let externalDeps = [];
-      if (fs.existsSync(pkgPath)) {
-        try {
-          const pkgContent = fs.readFileSync(pkgPath, 'utf-8');
-          const pkg = JSON.parse(pkgContent);
-          externalDeps = [
-            ...Object.keys(pkg.dependencies || {}),
-            ...Object.keys(pkg.devDependencies || {}),
-            ...Object.keys(pkg.peerDependencies || {}),
-            'electron',
-            'fs',
-            'path'
-          ];
-        } catch (e) {
-          console.warn('Could not parse package.json for externals:', e);
-        }
-      }
-
-      externalDeps.push('*.css', '*.scss', '*.sass', '*.less');
-      externalDeps.push('*.png', '*.jpg', '*.jpeg', '*.gif', '*.svg', '*.ico');
-      externalDeps.push('*.woff', '*.woff2', '*.ttf', '*.eot');
-
       combiner.reset();
       for (const file of filesToProcess) {
         combiner.processFile(file, false);
       }
-
-      const originalContent = combiner.getCombinedContent();
-      const originalSize = originalContent.length;
+      originalContent = combiner.getCombinedContent();
+      const processedFilesBackup = new Set(combiner.processedFiles);
 
       combiner.reset();
-
-      let bundledOutputs = [];
-      const loaderConfig = CONFIG.getLoaderConfig();
-
       if (isFolder) {
-        combiner.reset();
-        for (const file of filesToProcess) {
-          combiner.processFile(file, true);
-        }
-        finalContent = combiner.getCombinedContent();
-
-        if (shouldMinify) {
-          try {
-            const result = esbuild.transformSync(finalContent, {
-              loader: 'js',
-              minify: true,
-              target: 'esnext',
-            });
-            finalContent = result.code;
-          } catch (e) {
-            console.warn('Minification failed, using unminified output:', e.message);
-          }
-        }
+        finalContent = getCombinedContent(filesToProcess, true);
       } else {
-        const result = esbuild.buildSync({
-          entryPoints: filesToProcess,
-          bundle: true,
-          treeShaking: true,
-          minify: shouldMinify,
-          format: 'esm',
-          target: 'esnext',
-          platform: 'node',
-          tsconfig: hasTsConfig ? tsconfigPath : undefined,
-          write: false,
-          external: externalDeps,
-          loader: loaderConfig,
-        });
-        finalContent = result.outputFiles[0].text;
+        finalContent = buildWithEsbuild(filesToProcess, shouldMinify, detectedRoot, externalDeps);
       }
-
-      const compressedSize = finalContent.length;
-      const CHARS_PER_TOKEN = 4;
-      const originalTokens = Math.ceil(originalSize / CHARS_PER_TOKEN);
-      const compressedTokens = Math.ceil(compressedSize / CHARS_PER_TOKEN);
-      const tokensSaved = originalTokens - compressedTokens;
-      const COST_PER_1K_TOKENS = 0.03;
-      const costSaved = (tokensSaved / 1000) * COST_PER_1K_TOKENS;
-
-      stats = {
-        filesProcessed: isFolder ? `${combiner.processedFiles.size} files (deduplicated)` : "Bundled & Tree-shaken via esbuild",
-        outputSize: (compressedSize / 1024).toFixed(2),
-        originalSize: (originalSize / 1024).toFixed(2),
-        originalTokens,
-        compressedTokens,
-        tokensSaved,
-        costSaved: costSaved.toFixed(4),
-        files: isFolder ? Array.from(combiner.processedFiles).map(f => path.relative(inputPath, f)) : ["Optimized Bundle"]
-      };
+      if (shouldMinify) {
+        finalContent = minifyContent(finalContent);
+      }
+      stats = generateStats(processedFilesBackup, finalContent, originalContent);
     } else {
       combiner.reset();
       for (const file of filesToProcess) {
         combiner.processFile(file, false);
       }
-
       finalContent = combiner.getCombinedContent();
-      const baseStats = combiner.getStats(finalContent);
+      const tokenStats = calculateTokenStats(finalContent);
 
       stats = {
-        ...baseStats,
-        filesProcessed: isFolder ? `${filesToProcess.length} files` : baseStats.filesProcessed,
-        files: isFolder ? filesToProcess.map(f => path.relative(inputPath, f)) : baseStats.files
+        filesProcessed: combiner.processedFiles.size,
+        outputSize: tokenStats.sizeKB,
+        totalTokens: tokenStats.tokens,
+        estimatedCost: tokenStats.cost,
+        files: Array.from(combiner.processedFiles).map(f =>
+          isFolder ? path.relative(inputPath, f) : path.relative(path.dirname(inputPath), f)
+        ),
+        isOptimized: false
       };
     }
 
-    if (outputMode === 'clipboard') {
-      clipboard.writeText(finalContent);
-      return { success: true, mode: 'clipboard', ...stats };
-    } else {
-      if (!outputPath) throw new Error("Chưa chọn đường dẫn lưu file");
-      fs.writeFileSync(outputPath, finalContent, 'utf-8');
-      return { success: true, mode: 'file', ...stats };
-    }
+    return handleOutput(finalContent, outputMode, outputPath, stats);
+
   } catch (error) {
     return { success: false, error: error.message };
   }

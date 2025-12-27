@@ -1219,8 +1219,16 @@
             <div style="background: #e8f5e9; padding: 10px; border-radius: 8px; margin-top: 10px;">
               <p style="margin: 0 0 5px 0;">💰 <strong>Token Savings:</strong></p>
               <p style="margin: 2px 0; font-size: 13px;">• Original: <strong>${result.originalTokens.toLocaleString()}</strong> tokens (${result.originalSize} KB)</p>
-              <p style="margin: 2px 0; font-size: 13px;">• Compressed: <strong>${result.compressedTokens.toLocaleString()}</strong> tokens (${result.outputSize} KB)</p>
+              <p style="margin: 2px 0; font-size: 13px;">• Compressed: <strong>${result.totalTokens.toLocaleString()}</strong> tokens (${result.outputSize} KB)</p>
               <p style="margin: 2px 0; font-size: 13px; color: #2e7d32;">• Saved: <strong>${result.tokensSaved.toLocaleString()}</strong> tokens (~<strong>$${result.costSaved}</strong> per request)</p>
+            </div>
+          `;
+        } else if (result.totalTokens !== undefined) {
+          tokenSavingsInfo = `
+            <div style="background: #f0f4ff; padding: 10px; border-radius: 8px; margin-top: 10px;">
+              <p style="margin: 0 0 5px 0;">📊 <strong>Token Estimate:</strong></p>
+              <p style="margin: 2px 0; font-size: 13px;">• Total: <strong>${result.totalTokens.toLocaleString()}</strong> tokens (${result.outputSize} KB)</p>
+              <p style="margin: 2px 0; font-size: 13px;">• Estimated Cost: <strong>$${result.estimatedCost}</strong> per request</p>
             </div>
           `;
         }
