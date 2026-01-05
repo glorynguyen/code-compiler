@@ -680,6 +680,7 @@
       selectedFiles.clear();
       document.getElementById('filePicker').classList.remove('show');
       document.getElementById('filePickerList').innerHTML = '';
+      document.getElementById('gitignoreStatus').textContent = '';
       checkCanProcess();
     }
 
@@ -697,9 +698,26 @@
         if (path) {
           inputFilePath = path;
           document.getElementById('inputPath').value = path;
-          document.getElementById('filePicker').classList.remove('show');
+          await loadFileDependencies(path);
           checkCanProcess();
         }
+      }
+    }
+
+    async function loadFileDependencies(filePath) {
+      const result = await ipcRenderer.invoke('get-file-dependencies', filePath);
+      if (result.success) {
+        availableFiles = result.files;
+        selectedFiles = new Set(result.files.map(f => f.path));
+        renderFileTree();
+        document.getElementById('filePicker').classList.add('show');
+        document.getElementById('filePickerTitle').textContent = '📄 Select files to include:';
+        const statusEl = document.getElementById('gitignoreStatus');
+        statusEl.textContent = `(${result.files.length} dependencies found)`;
+        statusEl.style.color = '#667eea';
+        statusEl.style.display = 'inline';
+      } else {
+        alert('Error analyzing dependencies: ' + result.error);
       }
     }
 
@@ -1196,7 +1214,7 @@
 
       // Pass outputMode, isFolder, and selectedFiles to backend
       const isFolder = inputType === 'folder';
-      const filesToSend = isFolder ? Array.from(selectedFiles) : null;
+      const filesToSend = (inputType === 'folder' || availableFiles.length > 0) ? Array.from(selectedFiles) : [];
       const result = await ipcRenderer.invoke('process-files', inputFilePath, outputFilePath, outputMode, shouldCompress, shouldMinify, isFolder, filesToSend);
 
       btn.disabled = false;

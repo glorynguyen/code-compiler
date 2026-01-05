@@ -14,6 +14,9 @@ function collectFilesToProcess(isFolder, inputPath, selectedFiles, ignoreManager
       return findFilesInDirectory(inputPath, CONFIG.SUPPORTED_EXTENSIONS, ignoreManager, projectRoot);
     }
   } else {
+    if (selectedFiles && selectedFiles.length > 0) {
+      return selectedFiles;
+    }
     return [inputPath];
   }
 }
@@ -262,6 +265,10 @@ class IgnorePatternManager {
       .split(path.sep)
       .join('/');
 
+    if (relativePath.startsWith('../') || path.isAbsolute(relativePath)) {
+      return false;
+    }
+
     // Check if ignored
     return this.ig.ignores(relativePath);
   }
@@ -383,6 +390,7 @@ class CodeCombiner {
     this.projectRoot = null;
     this.projectDependencies = new Set();
     this.ignoreManager = new IgnorePatternManager();
+    this.allowedFiles = null;
   }
 
   extractImports(content) {
@@ -481,6 +489,10 @@ class CodeCombiner {
   processFile(filePath, compress = false) {
     const normalizedPath = path.resolve(filePath);
 
+    if (this.allowedFiles && !this.allowedFiles.has(normalizedPath)) {
+      return;
+    }
+
     if (!this.projectRoot) {
       this.projectRoot = this.detectRoot(normalizedPath);
       console.log(`Project Root detected at: ${this.projectRoot}`);
@@ -539,6 +551,7 @@ class CodeCombiner {
     this.output = [];
     this.projectRoot = null;
     this.projectDependencies = new Set();
+    this.allowedFiles = null;
   }
 
   buildDependencyGraph(filePath, visited = new Set()) {
@@ -749,6 +762,14 @@ ipcMain.handle('process-files', async (event, inputPath, outputPath, outputMode,
     combiner.reset();
     combiner.ignoreManager.loadGitignore(projectRoot);
 
+    let isSelective = false;
+    if (selectedFiles && selectedFiles.length > 0) {
+      combiner.allowedFiles = new Set(selectedFiles.map(f => path.resolve(f)));
+      isSelective = true;
+    } else if (!isFolder && inputPath) {
+      combiner.allowedFiles = null;
+    }
+
     const filesToProcess = collectFilesToProcess(
       isFolder,
       inputPath,
@@ -771,8 +792,11 @@ ipcMain.handle('process-files', async (event, inputPath, outputPath, outputMode,
     let stats = {};
     let originalContent = '';
 
-    if (shouldCompress) {
+    const useEsbuild = !isFolder && shouldCompress && !isSelective;
+
+    if (useEsbuild) {
       combiner.reset();
+      if (isSelective) combiner.allowedFiles = new Set(selectedFiles.map(f => path.resolve(f)));
       for (const file of filesToProcess) {
         combiner.processFile(file, false);
       }
@@ -791,22 +815,39 @@ ipcMain.handle('process-files', async (event, inputPath, outputPath, outputMode,
       stats = generateStats(processedFilesBackup, finalContent, originalContent);
     } else {
       combiner.reset();
+      if (isSelective) combiner.allowedFiles = new Set(selectedFiles.map(f => path.resolve(f)));
+      
       for (const file of filesToProcess) {
         combiner.processFile(file, false);
       }
-      finalContent = combiner.getCombinedContent();
-      const tokenStats = calculateTokenStats(finalContent);
+      originalContent = combiner.getCombinedContent();
+      const processedFilesBackup = new Set(combiner.processedFiles);
 
-      stats = {
-        filesProcessed: combiner.processedFiles.size,
-        outputSize: tokenStats.sizeKB,
-        totalTokens: tokenStats.tokens,
-        estimatedCost: tokenStats.cost,
-        files: Array.from(combiner.processedFiles).map(f =>
-          isFolder ? path.relative(inputPath, f) : path.relative(path.dirname(inputPath), f)
-        ),
-        isOptimized: false
-      };
+      if (shouldCompress || shouldMinify) {
+        combiner.reset();
+        if (isSelective) combiner.allowedFiles = new Set(selectedFiles.map(f => path.resolve(f)));
+        
+        for (const file of filesToProcess) {
+          combiner.processFile(file, true);
+        }
+        finalContent = combiner.getCombinedContent();
+        
+        if (shouldMinify) {
+          finalContent = minifyContent(finalContent);
+        }
+        stats = generateStats(processedFilesBackup, finalContent, originalContent);
+      } else {
+        finalContent = originalContent;
+        const tokenStats = calculateTokenStats(finalContent);
+        stats = {
+          filesProcessed: processedFilesBackup.size,
+          outputSize: tokenStats.sizeKB,
+          totalTokens: tokenStats.tokens,
+          estimatedCost: tokenStats.cost,
+          files: Array.from(processedFilesBackup).map(f => path.relative(projectRoot, f)),
+          isOptimized: false
+        };
+      }
     }
 
     return handleOutput(finalContent, outputMode, outputPath, stats);
@@ -825,4 +866,40 @@ ipcMain.handle('get-supported-extensions', async () => {
     extensions: CONFIG.SUPPORTED_EXTENSIONS,
     display: CONFIG.getExtensionsDisplay()
   };
+});
+
+ipcMain.handle('get-file-dependencies', async (event, inputPath) => {
+  try {
+    combiner.reset();
+    const graph = combiner.buildDependencyGraph(inputPath);
+
+    // Flatten the graph into a list of files
+    const files = [];
+    const visited = new Set();
+
+    function traverseGraph(node) {
+      if (!node.path || visited.has(node.path)) return;
+      if (node.missing || node.circular) return;
+
+      visited.add(node.path);
+      files.push(node.path);
+
+      if (node.children) {
+        node.children.forEach(child => traverseGraph(child));
+      }
+    }
+
+    traverseGraph(graph);
+
+    const projectRoot = path.dirname(inputPath);
+    const relativeFiles = files.map(f => ({
+      path: f,
+      relativePath: path.relative(projectRoot, f),
+      name: path.basename(f)
+    }));
+
+    return { success: true, files: relativeFiles, graph };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
 });
