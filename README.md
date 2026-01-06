@@ -26,8 +26,28 @@ Instead of manually copying dozens of files, Code Combiner creates a clean, dedu
   Process entire directories with granular file selection and "ignore" rules.
 - **📋 Instant Export**  
   One-click "Copy to Clipboard" or "Save to File" functionality.
+- **🌳 Interactive Tree Picker**
+  A modern, folder-aware file explorer with indeterminate checkbox support. Easily select entire directories or pick-and-choose specific files.
+- **🔍 Real-time Search & Filter**
+  Instantly find files within large projects using the integrated search bar. The tree automatically expands to show matching results.
+- **🙈 Automatic .gitignore Support**
+  Automatically detects and respects your project's `.gitignore` rules when scanning folders, ensuring build artifacts and secrets stay out of your AI prompts.
+- **Toggle-able Bundling Logic**
+  Choose between **Concatenation** (raw code blocks with file headers) or **Bundling** (esbuild-powered tree shaking) depending on your needs.
 
 ---
+
+## 🛠️ How it Works
+
+### Selective File Inclusion
+When you select a folder or an entry file, Code Combiner generates an interactive tree.
+*   **Checkbox Logic:** Selecting a folder automatically selects all children. Deselecting one child puts the parent into an "indeterminate" state.
+*   **Smart Scanning:** The app ignores heavy directories like `node_modules` and `.git` by default to keep the UI snappy.
+
+### Processing Modes
+1.  **Standard Concatenation:** Best for giving AI the full context of specific files. It wraps code in clear delimiters: `// File: /path/to/file`.
+2.  **⚡ Bundle Mode (esbuild):** Best for reducing token count. It resolves imports, removes unused code (tree-shaking), and combines everything into a single valid JS/TS output.
+3.  **🗜️ Minification:** Extreme token saving. Removes all comments and whitespace.
 
 ## 🖥️ Installation
 
