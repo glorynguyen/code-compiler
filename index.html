@@ -218,6 +218,27 @@
       font-size: 13px;
     }
 
+    #fileSearchInput {
+      padding: 6px 12px;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      font-size: 13px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    #fileSearchInput:focus {
+      border-color: #667eea;
+    }
+
+    .tree-item.hidden {
+      display: none !important;
+    }
+
+    .tree-node.hidden {
+      display: none !important;
+    }
+
     .tree-item {
       display: flex;
       align-items: center;
@@ -574,6 +595,8 @@
             <span id="gitignoreStatus"
               style="color: #28a745; font-size: 11px; font-weight: normal; margin-left: 8px;"></span>
           </div>
+          <input type="text" id="fileSearchInput" placeholder="🔍 Filter files..."
+            style="flex: 1; margin: 0 15px; max-width: 250px;">
           <div class="file-picker-actions">
             <button onclick="selectAllFiles()">Select All</button>
             <button onclick="deselectAllFiles()">Deselect All</button>
@@ -786,6 +809,7 @@
 
       updateParentCheckboxes();
       updateFileCount();
+      initializeFileSearch();
     }
 
     /**
@@ -1013,6 +1037,70 @@
 
       updateFileCount();
       checkCanProcess();
+    }
+
+    function initializeFileSearch() {
+      const searchInput = document.getElementById('fileSearchInput');
+      if (searchInput) {
+        searchInput.addEventListener('input', handleFileSearch);
+      }
+    }
+
+    function handleFileSearch(event) {
+      const searchTerm = event.target.value.toLowerCase().trim();
+      const allTreeItems = document.querySelectorAll('.tree-item');
+      const allTreeNodes = document.querySelectorAll('.tree-node');
+      
+      if (!searchTerm) {
+        allTreeItems.forEach(item => item.classList.remove('hidden'));
+        allTreeNodes.forEach(node => node.classList.remove('hidden'));
+        return;
+      }
+      
+      allTreeItems.forEach(item => item.classList.add('hidden'));
+      allTreeNodes.forEach(node => node.classList.add('hidden'));
+      
+      allTreeItems.forEach(item => {
+        const label = item.querySelector('.tree-label');
+        if (label) {
+          const fileName = label.textContent.toLowerCase();
+          
+          if (fileName.includes(searchTerm)) {
+            item.classList.remove('hidden');
+            
+            const parentNode = item.closest('.tree-node');
+            if (parentNode) {
+              parentNode.classList.remove('hidden');
+            }
+            
+            let currentElement = item.parentElement;
+            while (currentElement) {
+              if (currentElement.classList.contains('tree-node')) {
+                currentElement.classList.remove('hidden');
+                
+                const folderItem = currentElement.querySelector(':scope > .tree-item');
+                if (folderItem) {
+                  folderItem.classList.remove('hidden');
+                }
+              }
+              currentElement = currentElement.parentElement;
+            }
+            
+            let parent = item.closest('.tree-children');
+            while (parent) {
+              parent.classList.remove('collapsed');
+              
+              const toggle = parent.previousElementSibling?.querySelector('.tree-toggle');
+              if (toggle) {
+                toggle.textContent = '▼';
+                toggle.classList.add('rotated');
+              }
+              
+              parent = parent.parentElement?.closest('.tree-children');
+            }
+          }
+        }
+      });
     }
 
     function updateFileCount() {
